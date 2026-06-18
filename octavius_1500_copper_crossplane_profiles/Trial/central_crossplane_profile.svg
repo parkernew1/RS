@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560">
+<rect width="100%" height="100%" fill="white"/>
+<text x="78" y="30" font-family="Arial" font-size="18" font-weight="700">Trial: central cross-plane profile at y = 0.0 mm</text>
+<rect x="78" y="64" width="798" height="424" fill="#fafafa" stroke="#222" stroke-width="1"/>
+<line x1="78" x2="876" y1="488.00" y2="488.00" stroke="#dddddd" stroke-width="1"/>
+<text x="68" y="492.00" text-anchor="end" font-family="Arial" font-size="11">0.0</text>
+<line x1="78" x2="876" y1="409.49" y2="409.49" stroke="#dddddd" stroke-width="1"/>
+<text x="68" y="413.49" text-anchor="end" font-family="Arial" font-size="11">0.2</text>
+<line x1="78" x2="876" y1="330.98" y2="330.98" stroke="#dddddd" stroke-width="1"/>
+<text x="68" y="334.98" text-anchor="end" font-family="Arial" font-size="11">0.4</text>
+<line x1="78" x2="876" y1="252.47" y2="252.47" stroke="#dddddd" stroke-width="1"/>
+<text x="68" y="256.47" text-anchor="end" font-family="Arial" font-size="11">0.6</text>
+<line x1="78" x2="876" y1="173.96" y2="173.96" stroke="#dddddd" stroke-width="1"/>
+<text x="68" y="177.96" text-anchor="end" font-family="Arial" font-size="11">0.8</text>
+<line x1="78" x2="876" y1="95.45" y2="95.45" stroke="#dddddd" stroke-width="1"/>
+<text x="68" y="99.45" text-anchor="end" font-family="Arial" font-size="11">1.0</text>
+<line x1="78.00" x2="78.00" y1="64" y2="488" stroke="#eeeeee" stroke-width="1"/>
+<text x="78.00" y="508" text-anchor="middle" font-family="Arial" font-size="11">-125</text>
+<line x1="211.00" x2="211.00" y1="64" y2="488" stroke="#eeeeee" stroke-width="1"/>
+<text x="211.00" y="508" text-anchor="middle" font-family="Arial" font-size="11">-83</text>
+<line x1="344.00" x2="344.00" y1="64" y2="488" stroke="#eeeeee" stroke-width="1"/>
+<text x="344.00" y="508" text-anchor="middle" font-family="Arial" font-size="11">-42</text>
+<line x1="477.00" x2="477.00" y1="64" y2="488" stroke="#eeeeee" stroke-width="1"/>
+<text x="477.00" y="508" text-anchor="middle" font-family="Arial" font-size="11">0</text>
+<line x1="610.00" x2="610.00" y1="64" y2="488" stroke="#eeeeee" stroke-width="1"/>
+<text x="610.00" y="508" text-anchor="middle" font-family="Arial" font-size="11">42</text>
+<line x1="743.00" x2="743.00" y1="64" y2="488" stroke="#eeeeee" stroke-width="1"/>
+<text x="743.00" y="508" text-anchor="middle" font-family="Arial" font-size="11">83</text>
+<line x1="876.00" x2="876.00" y1="64" y2="488" stroke="#eeeeee" stroke-width="1"/>
+<text x="876.00" y="508" text-anchor="middle" font-family="Arial" font-size="11">125</text>
+<rect x="342.32" y="64" width="268.15" height="424" fill="#f2c94c" opacity="0.18"/>
+<line x1="476.44" x2="476.44" y1="64" y2="488" stroke="#1f7a1f" stroke-dasharray="8 4" stroke-width="1.3"/>
+<text x="480.44" y="80" font-family="Arial" font-size="10" fill="#1f7a1f">100% norm</text>
+<line x1="78" x2="876" y1="291.73" y2="291.73" stroke="#555" stroke-dasharray="6 5"/>
+<line x1="308.80" x2="308.80" y1="64" y2="488" stroke="#444" stroke-dasharray="6 5"/>
+<text x="312.80" y="480" font-family="Arial" font-size="10">50%</text>
+<line x1="643.99" x2="643.99" y1="64" y2="488" stroke="#444" stroke-dasharray="6 5"/>
+<text x="647.99" y="480" font-family="Arial" font-size="10">50%</text>
+<line x1="291.29" x2="291.29" y1="64" y2="488" stroke="#444" stroke-dasharray="2 4"/>
+<text x="295.29" y="480" font-family="Arial" font-size="10">20%</text>
+<line x1="326.64" x2="326.64" y1="64" y2="488" stroke="#444" stroke-dasharray="2 4"/>
+<text x="330.64" y="480" font-family="Arial" font-size="10">80%</text>
+<line x1="626.23" x2="626.23" y1="64" y2="488" stroke="#444" stroke-dasharray="2 4"/>
+<text x="630.23" y="480" font-family="Arial" font-size="10">80%</text>
+<line x1="661.39" x2="661.39" y1="64" y2="488" stroke="#444" stroke-dasharray="2 4"/>
+<text x="665.39" y="480" font-family="Arial" font-size="10">20%</text>
+<line x1="291.29" x2="326.64" y1="173.96" y2="173.96" stroke="#8a4f00" stroke-width="2"/>
+<line x1="291.29" x2="291.29" y1="168.96" y2="178.96" stroke="#8a4f00" stroke-width="2"/>
+<line x1="326.64" x2="326.64" y1="168.96" y2="178.96" stroke="#8a4f00" stroke-width="2"/>
+<text x="308.97" y="161.96" text-anchor="middle" font-family="Arial" font-size="11" fill="#8a4f00">Left penumbra: 11.1 mm</text>
+<line x1="626.23" x2="661.39" y1="173.96" y2="173.96" stroke="#8a4f00" stroke-width="2"/>
+<line x1="626.23" x2="626.23" y1="168.96" y2="178.96" stroke="#8a4f00" stroke-width="2"/>
+<line x1="661.39" x2="661.39" y1="168.96" y2="178.96" stroke="#8a4f00" stroke-width="2"/>
+<text x="643.81" y="161.96" text-anchor="middle" font-family="Arial" font-size="11" fill="#8a4f00">Right penumbra: 11.0 mm</text>
+<polyline fill="none" stroke="#0b5cad" stroke-width="2" points="78.00,484.51 93.96,484.27 109.92,483.83 125.88,483.30 141.84,483.00 157.80,482.80 173.76,482.87 189.72,482.70 205.68,481.77 221.64,480.36 237.60,478.53 253.56,475.06 269.52,467.00 285.48,440.45 301.44,355.42 317.40,217.26 333.36,142.51 349.32,120.83 365.28,112.86 381.24,108.08 397.20,104.27 413.16,101.02 429.12,99.07 445.08,97.12 461.04,96.66 477.00,95.41 492.96,96.26 508.92,96.91 524.88,98.45 540.84,100.30 556.80,103.24 572.76,106.68 588.72,112.35 604.68,120.81 620.64,145.09 636.60,227.57 652.56,366.12 668.52,444.50 684.48,468.39 700.44,475.93 716.40,479.22 732.36,481.02 748.32,482.29 764.28,483.16 780.24,483.66 796.20,483.83 812.16,483.76 828.12,483.77 844.08,484.24 860.04,484.62 876.00,484.89"/>
+<circle cx="78.00" cy="484.51" r="2.4" fill="#0b5cad"/>
+<circle cx="93.96" cy="484.27" r="2.4" fill="#0b5cad"/>
+<circle cx="109.92" cy="483.83" r="2.4" fill="#0b5cad"/>
+<circle cx="125.88" cy="483.30" r="2.4" fill="#0b5cad"/>
+<circle cx="141.84" cy="483.00" r="2.4" fill="#0b5cad"/>
+<circle cx="157.80" cy="482.80" r="2.4" fill="#0b5cad"/>
+<circle cx="173.76" cy="482.87" r="2.4" fill="#0b5cad"/>
+<circle cx="189.72" cy="482.70" r="2.4" fill="#0b5cad"/>
+<circle cx="205.68" cy="481.77" r="2.4" fill="#0b5cad"/>
+<circle cx="221.64" cy="480.36" r="2.4" fill="#0b5cad"/>
+<circle cx="237.60" cy="478.53" r="2.4" fill="#0b5cad"/>
+<circle cx="253.56" cy="475.06" r="2.4" fill="#0b5cad"/>
+<circle cx="269.52" cy="467.00" r="2.4" fill="#0b5cad"/>
+<circle cx="285.48" cy="440.45" r="2.4" fill="#0b5cad"/>
+<circle cx="301.44" cy="355.42" r="2.4" fill="#0b5cad"/>
+<circle cx="317.40" cy="217.26" r="2.4" fill="#0b5cad"/>
+<circle cx="333.36" cy="142.51" r="2.4" fill="#0b5cad"/>
+<circle cx="349.32" cy="120.83" r="2.4" fill="#0b5cad"/>
+<circle cx="365.28" cy="112.86" r="2.4" fill="#0b5cad"/>
+<circle cx="381.24" cy="108.08" r="2.4" fill="#0b5cad"/>
+<circle cx="397.20" cy="104.27" r="2.4" fill="#0b5cad"/>
+<circle cx="413.16" cy="101.02" r="2.4" fill="#0b5cad"/>
+<circle cx="429.12" cy="99.07" r="2.4" fill="#0b5cad"/>
+<circle cx="445.08" cy="97.12" r="2.4" fill="#0b5cad"/>
+<circle cx="461.04" cy="96.66" r="2.4" fill="#0b5cad"/>
+<circle cx="477.00" cy="95.41" r="2.4" fill="#0b5cad"/>
+<circle cx="492.96" cy="96.26" r="2.4" fill="#0b5cad"/>
+<circle cx="508.92" cy="96.91" r="2.4" fill="#0b5cad"/>
+<circle cx="524.88" cy="98.45" r="2.4" fill="#0b5cad"/>
+<circle cx="540.84" cy="100.30" r="2.4" fill="#0b5cad"/>
+<circle cx="556.80" cy="103.24" r="2.4" fill="#0b5cad"/>
+<circle cx="572.76" cy="106.68" r="2.4" fill="#0b5cad"/>
+<circle cx="588.72" cy="112.35" r="2.4" fill="#0b5cad"/>
+<circle cx="604.68" cy="120.81" r="2.4" fill="#0b5cad"/>
+<circle cx="620.64" cy="145.09" r="2.4" fill="#0b5cad"/>
+<circle cx="636.60" cy="227.57" r="2.4" fill="#0b5cad"/>
+<circle cx="652.56" cy="366.12" r="2.4" fill="#0b5cad"/>
+<circle cx="668.52" cy="444.50" r="2.4" fill="#0b5cad"/>
+<circle cx="684.48" cy="468.39" r="2.4" fill="#0b5cad"/>
+<circle cx="700.44" cy="475.93" r="2.4" fill="#0b5cad"/>
+<circle cx="716.40" cy="479.22" r="2.4" fill="#0b5cad"/>
+<circle cx="732.36" cy="481.02" r="2.4" fill="#0b5cad"/>
+<circle cx="748.32" cy="482.29" r="2.4" fill="#0b5cad"/>
+<circle cx="764.28" cy="483.16" r="2.4" fill="#0b5cad"/>
+<circle cx="780.24" cy="483.66" r="2.4" fill="#0b5cad"/>
+<circle cx="796.20" cy="483.83" r="2.4" fill="#0b5cad"/>
+<circle cx="812.16" cy="483.76" r="2.4" fill="#0b5cad"/>
+<circle cx="828.12" cy="483.77" r="2.4" fill="#0b5cad"/>
+<circle cx="844.08" cy="484.24" r="2.4" fill="#0b5cad"/>
+<circle cx="860.04" cy="484.62" r="2.4" fill="#0b5cad"/>
+<circle cx="876.00" cy="484.89" r="2.4" fill="#0b5cad"/>
+<text x="78" y="50" font-family="Arial" font-size="12">FWHM 105.0 mm | Flatness 3.35% | Symmetry 0.45%</text>
+<text x="477.0" y="538" text-anchor="middle" font-family="Arial" font-size="13">Cross-plane x (mm)</text>
+<text x="18" y="276.0" transform="rotate(-90 18 276.0)" text-anchor="middle" font-family="Arial" font-size="13">Relative dose, normalized at midpoint of 80% crossings</text>
+</svg>

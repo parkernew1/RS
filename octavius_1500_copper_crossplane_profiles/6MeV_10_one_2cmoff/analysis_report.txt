@@ -1,0 +1,23 @@
+MCC file: 6MeV_10_one_2cmoff.mcc
+Profiles/rows parsed: 53
+Original detector spacing within a row: 10 mm
+Aligned x grid: -125.0 to 125.0 mm, 5.0 mm spacing
+Y row grid: -130.0 to 130.0 mm, 5.0 mm spacing
+Directly measured aligned cells: 1351 / 2703 (50.0%)
+
+Profile normalization
+  100% is set to the interpolated dose at the midpoint between the left and right 80% crossings.
+  Normalization point: x = -14.681 mm, y = 0.0 mm
+  Normalization dose: 1.9296708 Gy
+
+2D dose maximum
+  Max dose: 1.9428 Gy at x = 0.0 mm, y = 0.0 mm
+
+crossplane_x_at_y0 profile
+  Peak relative dose: 1.0068 at 0.000 mm
+  50% dose level: 0.5
+  50% crossings: -52.797 mm, 21.567 mm
+  FWHM: 74.364 mm
+  80%-20% penumbra left/right: 12.564 mm, 8.013 mm
+  Flatness in central 80% of FWHM field: 8.080 %
+  Symmetry in central 80% of FWHM field: 7.909 %

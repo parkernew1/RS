@@ -1,88 +1,93 @@
 from __future__ import annotations
 
 import csv
-import os
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from html import escape
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.backends.backend_pdf import PdfPages
 
-# where we want results saved, where we want to read from
-OUTPUT_DIR = r"/path/to/output/"
-MCC_FILE = r"/path/to/mcc/"
+try:
+    import matplotlib
 
-# it's okay if the output directory folder already exists
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+except ModuleNotFoundError:
+    plt = None
+    PdfPages = None
 
-# this pulls numerical values out of mcc file - needed because the raw file
-# contains lots of plain text
+try:
+    from PIL import Image, ImageDraw
+except ModuleNotFoundError:
+    Image = None
+    ImageDraw = None
+
+
+PROJECT_DIR = Path(__file__).resolve().parent
+INPUT_DIR = PROJECT_DIR / "Octavius_1500_copper"
+OUTPUT_DIR = PROJECT_DIR / "octavius_1500_copper_crossplane_profiles"
+
 NUMBER_PATTERN = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 
-# define a custom data container named profile
-# each profile represents one begin scan to end scan block of the .mcc
+
 @dataclass
 class Profile:
-    """
-    One MCC BEGIN_SCAN block.
+    """One MCC BEGIN_SCAN block, representing one detector row."""
 
-    Attributes
-    ----------
-    scan_number:
-        Scan number written in the MCC file.
-
-    inplane_position:
-        Physical row coordinate from SCAN_OFFAXIS_INPLANE.
-
-    x:
-        Measured cross-plane detector coordinates for this row.
-
-    dose:
-        Measured dose values corresponding one-to-one with x.
-    """
     scan_number: int
-    inplane_position: float
-    x: np.ndarray
-    dose: np.ndarray
+    inplane_position_mm: float
+    x_mm: np.ndarray
+    dose_gy: np.ndarray
 
-# define a function called read_mcc
-def read_mcc(filepath: str) -> List[Profile]:
 
-    # take a file path and return a list of profile objects defined above
-    # starts an empty list, each scan profile added here
+@dataclass
+class AxisMetrics:
+    """Summary metrics for one 1D central-axis dose profile."""
+
+    axis_name: str
+    normalization_position_mm: float
+    normalization_dose_gy: float
+    peak_relative_dose: float
+    peak_position_mm: float
+    half_dose_level: float
+    fwhm_mm: Optional[float]
+    left_50_mm: Optional[float]
+    right_50_mm: Optional[float]
+    left_20_mm: Optional[float]
+    left_80_mm: Optional[float]
+    right_80_mm: Optional[float]
+    right_20_mm: Optional[float]
+    left_penumbra_mm: Optional[float]
+    right_penumbra_mm: Optional[float]
+    flatness_percent: Optional[float]
+    symmetry_percent: Optional[float]
+    field_center_mm: Optional[float]
+    flat_region_left_mm: Optional[float]
+    flat_region_right_mm: Optional[float]
+
+
+def read_mcc(filepath: Path) -> List[Profile]:
+    """Read an MCC file into row profiles using physical coordinates."""
     profiles: List[Profile] = []
 
-    # inside_scan becomes true after begin_scan
-    # inside data becomes true after begin data
     inside_scan = False
     inside_data = False
-
-    # store temporary data while reading one scan
-    # once the scan ends this becomes a PROFILE
     current_scan_number: Optional[int] = None
     current_inplane_position: Optional[float] = None
     current_x: List[float] = []
     current_dose: List[float] = []
 
-    # opens the mcc file for reading, ignore errors to prevent from crashing
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-        # read the file one line at a time
+    with filepath.open("r", encoding="utf-8", errors="ignore") as f:
         for raw_line in f:
-            # remove space, tabs, newlines from beginning and end
             stripped = raw_line.strip()
-
             if not stripped:
                 continue
 
-            # BEGIN_SCAN_DATA must not be mistaken for BEGIN_SCAN.
-            # checks whether the current line looks EXACTLY like BEGIN_SCAN 1, etc.
             match_scan = re.fullmatch(r"BEGIN_SCAN\s+(\d+)", stripped)
-            # if this line is a scan start, reset everything for a new profile
             if match_scan:
-                # we are now inside a scan
-                # save scan number, clear old x and dose lists, move to next line
                 inside_scan = True
                 inside_data = False
                 current_scan_number = int(match_scan.group(1))
@@ -91,86 +96,54 @@ def read_mcc(filepath: str) -> List[Profile]:
                 current_dose = []
                 continue
 
-            # if we haven't entered a begin_scan yet, ignore the line
             if not inside_scan:
                 continue
 
-            # finds the line that tells us info about the in-plane direction
             if stripped.startswith("SCAN_OFFAXIS_INPLANE="):
-                value_text = stripped.split("=", 1)[1].strip()
-                # convert "SCAN_OFFAXIS_INPLANE=-125.00" to -125.00
-                current_inplane_position = float(value_text)
+                current_inplane_position = float(stripped.split("=", 1)[1])
                 continue
 
-            # start reading measurement rows
             if stripped == "BEGIN_DATA":
                 inside_data = True
                 continue
 
-            # stop reading measurement rows
             if stripped == "END_DATA":
                 inside_data = False
                 continue
 
-            # detects the end of a scan
             if re.fullmatch(r"END_SCAN\s+\d+", stripped):
-
-                # check whether the scan had all required information
                 if current_scan_number is None:
-                    raise ValueError("Encountered END_SCAN without a scan number.")
-
+                    raise ValueError(f"{filepath.name}: END_SCAN without BEGIN_SCAN.")
                 if current_inplane_position is None:
                     raise ValueError(
-                        f"Scan {current_scan_number} is missing "
+                        f"{filepath.name}: scan {current_scan_number} is missing "
                         "SCAN_OFFAXIS_INPLANE."
                     )
-
                 if not current_x:
                     raise ValueError(
-                        f"Scan {current_scan_number} contains no data points."
+                        f"{filepath.name}: scan {current_scan_number} has no data."
                     )
 
-                # the collected x and dose values in python lists are now
-                # converted to numpy arrays
                 x_array = np.asarray(current_x, dtype=float)
                 dose_array = np.asarray(current_dose, dtype=float)
-
-                # there should be one dose value for each x position
-                if x_array.size != dose_array.size:
-                    raise ValueError(
-                        f"Scan {current_scan_number} has mismatched x and dose "
-                        f"lengths: {x_array.size} versus {dose_array.size}."
-                    )
-
-                # Sort each profile by physical x coordinate. This makes later
-                # interpolation safe even if a file stores a scan in reverse.
-                # sort x positions from low to high, rearrange the dose values
-                # in the same order
                 order = np.argsort(x_array)
                 x_array = x_array[order]
                 dose_array = dose_array[order]
 
-                # check for duplicate x values
                 if np.unique(x_array).size != x_array.size:
                     raise ValueError(
-                        f"Scan {current_scan_number} contains duplicate "
-                        "cross-plane positions."
+                        f"{filepath.name}: scan {current_scan_number} has duplicate x values."
                     )
 
-                # creates one profile object and adds it to the list
-                # at this point, one MCC scan has become one structured
-                # Python object, class Profiles
                 profiles.append(
                     Profile(
                         scan_number=current_scan_number,
-                        inplane_position=float(current_inplane_position),
-                        x=x_array,
-                        dose=dose_array,
+                        inplane_position_mm=float(current_inplane_position),
+                        x_mm=x_array,
+                        dose_gy=dose_array,
                     )
                 )
 
-                # reset after the scan
-                # clears temporary variables so next scan can start
                 inside_scan = False
                 inside_data = False
                 current_scan_number = None
@@ -179,1030 +152,1201 @@ def read_mcc(filepath: str) -> List[Profile]:
                 current_dose = []
                 continue
 
-            # read only numeric measurement lines between begin data and end data
             if inside_data:
-                # A data line has the form:
-                #   -130.00    8.2674E-03    #1379
-                #
-                # Remove the detector-number comment first so "#1379" is not
-                # incorrectly treated as a third physical data value.
                 data_text = stripped.split("#", 1)[0].strip()
-                # extract numbers from the cleaned line
                 numbers = NUMBER_PATTERN.findall(data_text)
+                if len(numbers) >= 2:
+                    current_x.append(float(numbers[0]))
+                    current_dose.append(float(numbers[1]))
 
-                # if the line does not contain at least x and dose, skip
-                if len(numbers) < 2:
-                    continue
-                # first number is cross-plane position, second is dose
-                current_x.append(float(numbers[0]))
-                current_dose.append(float(numbers[1]))
-
-    # if no profiles were found
     if not profiles:
-        raise ValueError(
-            "No valid MCC profiles were found. Check the file path and format."
-        )
+        raise ValueError(f"No valid MCC profiles were found in {filepath}.")
 
-    # Put rows into physical in-plane order rather than trusting file order.
-    profiles.sort(key=lambda p: p.inplane_position)
-
-    # send list of profiles back to the rest of the script
+    profiles.sort(key=lambda p: p.inplane_position_mm)
     return profiles
 
 
-# function to find common grid spacing
-# figures out the smallest x spacing present across all profiles
-def estimate_common_grid_spacing(
-    profiles: List[Profile],
-    decimals: int = 8,
-) -> float:
-    """
-    Estimate the smallest physical x increment represented across all rows.
-
-    For the staggered OCTAVIUS geometry in the supplied MCC excerpt:
-      - one row contains ..., -130, -120, -110, ...
-      - the next contains ..., -125, -115, -105, ...
-
-    Each individual row has 10 mm detector spacing, but the union of all row
-    coordinates has a 5 mm increment. Therefore, 5 mm is the appropriate common
-    grid for an aligned rectangular representation.
-
-    Rounding is used only to suppress tiny floating-point differences.
-    """
-    # collect every x position from every pofile into one big array
-    all_positions = np.concatenate([p.x for p in profiles])
-    # rounds tiny floating point differences and keeps only unique positions
+def estimate_common_grid_spacing(profiles: List[Profile], decimals: int = 8) -> float:
+    """Return the smallest real x spacing present in the detector coordinates."""
+    all_positions = np.concatenate([p.x_mm for p in profiles])
     unique_positions = np.unique(np.round(all_positions, decimals=decimals))
-    # sort low to high
     unique_positions.sort()
 
-    # calculate the spacing between neighboring x positions
-    # Octavius 1500 -> [-130, -125, -120] -> [5, 5]
     differences = np.diff(unique_positions)
-    # remove zero or tiny fake differences caused by floating point
     differences = differences[differences > 10 ** (-decimals)]
-
-    # if position is truly zero, error
     if differences.size == 0:
         raise ValueError("Could not infer a common cross-plane grid spacing.")
 
-    # pick the smallest real spacing
-    spacing = float(np.min(differences))
+    return float(np.min(differences))
 
-    # error for negative spacing
-    if spacing <= 0:
-        raise ValueError(f"Invalid inferred grid spacing: {spacing}")
 
-    # return spacing to the rest of the script
-    return spacing
-
-# make a real 2D dose matrix where every column corresponds to the same x
 def build_aligned_dose_matrix(
     profiles: List[Profile],
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Build a spatially aligned rectangular dose matrix.
+    Build a rectangular, coordinate-correct dose matrix.
 
-    Why interpolation is necessary
-    ------------------------------
-    Alternating detector rows are staggered by half a detector pitch. Their
-    measured x coordinates are therefore different. A rectangular NumPy array
-    requires every column to represent the same physical x coordinate.
-
-    The original code stacked dose values by array index. That falsely treated,
-    for example, a measurement at x=-125 mm as though it were at x=-130 mm.
-
-    This function creates a common physical x grid and linearly interpolates
-    each measured row onto that grid.
-
-    Important interpretation
-    ------------------------
-    The resulting matrix is a spatially aligned reconstruction. Values that
-    fall between two detectors in a row are interpolated estimates, not new
-    independent detector measurements.
-
-    Returns
-    -------
-    x_positions:
-        Common cross-plane grid.
-
-    y_positions:
-        Physical in-plane row coordinates from SCAN_OFFAXIS_INPLANE.
-
-    dose_matrix:
-        Aligned matrix with shape [n_profiles, n_x_positions].
-
-    measured_mask:
-        Boolean matrix of the same shape. True means that grid location was
-        directly measured in that row; False means it was interpolated.
+    The OCTAVIUS 1500 rows are staggered: neighboring rows are shifted by half a
+    detector pitch in x. Direct detector measurements are preserved. For grid
+    points missing from a row because of the stagger, the preferred estimate is
+    vertical interpolation between the same x coordinate measured on the nearest
+    rows above and below. Same-row horizontal interpolation is used only as an
+    edge fallback where a vertical bracket does not exist.
     """
-    if not profiles:
-        raise ValueError("No profiles were supplied.")
+    y_positions = np.asarray([p.inplane_position_mm for p in profiles], dtype=float)
 
-    # make an array of all physical row positions
-    y_positions = np.asarray(
-        [p.inplane_position for p in profiles],
-        dtype=float,
-    )
-
-    # Restrict the matrix to the x interval covered by every row. This avoids
-    # extrapolating beyond the outermost detector in any profile.
-    # shared range is only the part covered by every row (-125 to 125, for ex)
-    common_min = max(float(np.min(p.x)) for p in profiles)
-    common_max = min(float(np.max(p.x)) for p in profiles)
-
+    common_min = max(float(np.min(p.x_mm)) for p in profiles)
+    common_max = min(float(np.max(p.x_mm)) for p in profiles)
     if common_max <= common_min:
-        raise ValueError(
-            "The profiles do not share a common cross-plane coordinate range."
-        )
+        raise ValueError("Profiles do not share a common cross-plane range.")
 
-    # find the common x spacing, usually 5 mm
     spacing = estimate_common_grid_spacing(profiles)
-
-    # calculate how many spacing intervals fit between common min and max
     n_steps = int(np.floor((common_max - common_min) / spacing + 1e-9))
-    # define the common x grid based on the minimum, spacing, and n_steps
     x_positions = common_min + spacing * np.arange(n_steps + 1, dtype=float)
-    # so now we have [-125, -120, -115,..., 120, 125]
-
-    # Include common_max if floating-point rounding left it just beyond the
-    # final generated point.
     if common_max - x_positions[-1] > spacing * 1e-6:
         x_positions = np.append(x_positions, common_max)
 
-    # collect the aligned dose rows and measured/interpolated masks
-    aligned_rows: List[np.ndarray] = []
-    measured_rows: List[np.ndarray] = []
+    dose_matrix = np.full((len(profiles), len(x_positions)), np.nan, dtype=float)
+    measured_mask = np.zeros(dose_matrix.shape, dtype=bool)
+    interpolation_method = np.full(dose_matrix.shape, "unfilled", dtype="U32")
 
-    # define how close two coordinates need to be to count as the same
-    tolerance = max(1e-8, spacing * 1e-6)
+    measured_by_row: List[Dict[float, float]] = [
+        {round(float(x), 8): float(dose) for x, dose in zip(profile.x_mm, profile.dose_gy)}
+        for profile in profiles
+    ]
+    x_keys = [round(float(x), 8) for x in x_positions]
 
-    # loop through every detector row
-    for profile in profiles:
-        # np.interp performs linear interpolation only inside the measured
-        # range. Because x_positions is restricted to the common overlap,
-        # no extrapolation is performed here.
-        aligned_dose = np.interp(
-            x_positions,
-            profile.x,
-            profile.dose,
-        )
-        aligned_rows.append(aligned_dose)
-        # that is, if a row originally has [-125, --15, -105,...]
-        # it will now have [-125, -120, -115, -110, ...]
+    for row_idx, row_measurements in enumerate(measured_by_row):
+        for col_idx, x_key in enumerate(x_keys):
+            if x_key in row_measurements:
+                dose_matrix[row_idx, col_idx] = row_measurements[x_key]
+                measured_mask[row_idx, col_idx] = True
+                interpolation_method[row_idx, col_idx] = "direct"
 
-        # Record which aligned cells correspond to an actual detector
-        # coordinate in this particular row
-        # this compares every common x position to every measured x position in profile
-        # it determines distance between each grid point and nearest real detector
-        distance_to_nearest_measurement = np.min(
-            np.abs(x_positions[:, None] - profile.x[None, :]),
-            axis=1,
-        )
-        # if a grid point is equal to real detector, mark True
-        measured_rows.append(
-            distance_to_nearest_measurement <= tolerance
-        )
+    for row_idx, profile in enumerate(profiles):
+        for col_idx, x_key in enumerate(x_keys):
+            if np.isfinite(dose_matrix[row_idx, col_idx]):
+                continue
 
-    # stack all rows into 2D arrays
-    # shape = (number of in-plane rows) * (number of cross-plane positions)
-    dose_matrix = np.vstack(aligned_rows)
-    measured_mask = np.vstack(measured_rows)
+            lower_idx = None
+            upper_idx = None
+            for candidate_idx in range(row_idx - 1, -1, -1):
+                if x_key in measured_by_row[candidate_idx]:
+                    lower_idx = candidate_idx
+                    break
+            for candidate_idx in range(row_idx + 1, len(profiles)):
+                if x_key in measured_by_row[candidate_idx]:
+                    upper_idx = candidate_idx
+                    break
 
-    # return physical x coords, physical y coords, aligned dose data,
-    # and measured or interpolated flags
-    return x_positions, y_positions, dose_matrix, measured_mask
+            if lower_idx is not None and upper_idx is not None:
+                y_lower = y_positions[lower_idx]
+                y_upper = y_positions[upper_idx]
+                fraction = (y_positions[row_idx] - y_lower) / (y_upper - y_lower)
+                lower_dose = measured_by_row[lower_idx][x_key]
+                upper_dose = measured_by_row[upper_idx][x_key]
+                dose_matrix[row_idx, col_idx] = lower_dose + fraction * (upper_dose - lower_dose)
+                interpolation_method[row_idx, col_idx] = "vertical_offset_rows"
+                continue
 
+            dose_matrix[row_idx, col_idx] = np.interp(
+                x_positions[col_idx],
+                profile.x_mm,
+                profile.dose_gy,
+            )
+            interpolation_method[row_idx, col_idx] = "horizontal_edge_fallback"
 
-# =============================================================================
-# 3. SAVE RAW AND ALIGNED DATA
-# =============================================================================
-
-# save the original data exactly as measured
-def save_raw_measurements_csv(
-    csv_path: str,
-    profiles: List[Profile],
-) -> None:
-    """
-    Save every original detector measurement without interpolation.
-
-    This long-format file is the audit trail for the raw MCC data.
-    """
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "scan_number",
-                "inplane_position",
-                "crossplane_position",
-                "dose",
-            ]
-        )
-
-        for profile in profiles:
-            for x, dose in zip(profile.x, profile.dose):
-                writer.writerow(
-                    [
-                        profile.scan_number,
-                        profile.inplane_position,
-                        x,
-                        dose,
-                    ]
-                )
-
-    print(f"Raw measurement CSV saved to: {csv_path}")
-
-# saves corrected rectangular matrix
-def save_aligned_dose_csv(
-    csv_path: str,
-    x_positions: np.ndarray,
-    y_positions: np.ndarray,
-    dose_matrix: np.ndarray,
-) -> None:
-    """
-    Save the aligned dose matrix.
-
-    Each profile column is labeled with its physical in-plane coordinate rather
-    than only a sequential profile number.
-    """
-    if dose_matrix.shape != (len(y_positions), len(x_positions)):
-        raise ValueError(
-            "Dose matrix shape does not match x/y coordinate lengths."
-        )
-
-    header_columns = ["crossplane_position"]
-    header_columns.extend(
-        f"dose_at_inplane_{y:g}" for y in y_positions
+    return (
+        x_positions,
+        y_positions,
+        dose_matrix,
+        measured_mask,
+        interpolation_method,
     )
 
-    output = np.column_stack([x_positions, dose_matrix.T])
 
-    np.savetxt(
-        csv_path,
-        output,
-        delimiter=",",
-        header=",".join(header_columns),
-        comments="",
-    )
-
-    print(f"Aligned dose matrix CSV saved to: {csv_path}")
-
-# save measured/interpolated mask
-def save_measured_mask_csv(
-    csv_path: str,
-    x_positions: np.ndarray,
-    y_positions: np.ndarray,
-    measured_mask: np.ndarray,
-) -> None:
-    """
-    Save a 1/0 mask identifying measured versus interpolated matrix cells.
-
-    1 = directly measured detector location
-    0 = linearly interpolated location
-    """
-    header_columns = ["crossplane_position"]
-    header_columns.extend(
-        f"measured_at_inplane_{y:g}" for y in y_positions
-    )
-
-    output = np.column_stack(
-        [x_positions, measured_mask.astype(int).T]
-    )
-
-    np.savetxt(
-        csv_path,
-        output,
-        delimiter=",",
-        header=",".join(header_columns),
-        comments="",
-        fmt=["%.8g"] + ["%d"] * measured_mask.shape[0],
-    )
-
-    print(f"Measured/interpolated mask CSV saved to: {csv_path}")
-
-
-# =============================================================================
-# 4. PROFILE-LEVEL HELPERS
-# =============================================================================
-
-# function finds where profile crosses certain dose level
 def interpolate_crossing(
-    x: np.ndarray,
-    y: np.ndarray,
+    positions: np.ndarray,
+    relative_dose: np.ndarray,
     level: float,
     side: str,
 ) -> Optional[float]:
-    """
-    Find a linearly interpolated level crossing on one side of the field.
-
-    Parameters
-    ----------
-    side:
-        "left" or "right". The crossing nearest the central axis is returned.
-    """
-    if side not in {"left", "right"}:
+    """Linearly interpolate the crossing nearest the central axis on one side."""
+    if side == "left":
+        mask = positions <= 0
+    elif side == "right":
+        mask = positions >= 0
+    else:
         raise ValueError("side must be 'left' or 'right'.")
 
-    # separate left half from right half
-    if side == "left":
-        mask = x <= 0
-    else:
-        mask = x >= 0
-
-    # keep only selected side
-    xs = x[mask]
-    ys = y[mask]
-
-    # need at least two points to find a crossing
+    xs = positions[mask]
+    ys = relative_dose[mask]
     if xs.size < 2:
         return None
 
-    # sort x-values from low to high
     order = np.argsort(xs)
     xs = xs[order]
     ys = ys[order]
-
-    # store possible crossing positions
     crossings: List[float] = []
 
-    # look at each neighboring pair of points
-    for i in range(len(xs) - 1):
-        # these are the two dose values around that segment
+    for i in range(xs.size - 1):
         y1 = ys[i]
         y2 = ys[i + 1]
-
-        # if both points are above or both below the level, this segment does not cross
         if (y1 - level) * (y2 - level) > 0:
             continue
-
         if np.isclose(y1, y2):
             if np.isclose(y1, level):
                 crossings.append(float(0.5 * (xs[i] + xs[i + 1])))
             continue
-
-        # how far between the two points the crossing occurs
         fraction = (level - y1) / (y2 - y1)
-
         if 0 <= fraction <= 1:
-            # convert that fraction into an x coordinate
-            crossing = xs[i] + fraction * (xs[i + 1] - xs[i])
-            crossings.append(float(crossing))
+            crossings.append(float(xs[i] + fraction * (xs[i + 1] - xs[i])))
 
     if not crossings:
         return None
-
-    # Choose the edge crossing nearest x=0. This is more robust if noise creates
-    # an additional crossing far outside the primary field edge.
     return min(crossings, key=abs)
 
 
-# =============================================================================
-# 5. ANALYZE DOSE
-# =============================================================================
+def all_level_crossings(
+    positions: np.ndarray,
+    relative_dose: np.ndarray,
+    level: float,
+) -> List[float]:
+    """Return all linearly interpolated crossings of a dose level."""
+    order = np.argsort(positions)
+    xs = positions[order]
+    ys = relative_dose[order]
+    crossings: List[float] = []
 
-# calculate summary metrics
-def analyze_dose(
-    x_positions: np.ndarray,
-    y_positions: np.ndarray,
-    dose_matrix: np.ndarray,
-    report_path: str,
-    central_profile_idx: int,
-    profile_norm: np.ndarray,
-) -> Dict[str, object]:
+    for i in range(xs.size - 1):
+        y1 = ys[i]
+        y2 = ys[i + 1]
+        if (y1 - level) * (y2 - level) > 0:
+            continue
+        if np.isclose(y1, y2):
+            if np.isclose(y1, level):
+                crossings.append(float(0.5 * (xs[i] + xs[i + 1])))
+            continue
+        fraction = (level - y1) / (y2 - y1)
+        if 0 <= fraction <= 1:
+            crossings.append(float(xs[i] + fraction * (xs[i + 1] - xs[i])))
+
+    return crossings
+
+
+def peak_side_crossing(
+    positions: np.ndarray,
+    relative_dose: np.ndarray,
+    level: float,
+    peak_position: float,
+    side: str,
+) -> Optional[float]:
     """
-    Calculate central-profile and two-dimensional summary metrics.
+    Return the level crossing belonging to one edge of the profile peak.
 
-    The matrix supplied here has already been spatially aligned, so every
-    matrix column corresponds to the same physical x coordinate in every row.
+    This is intentionally peak-relative rather than central-axis-relative.
+    For shielded profiles, there may be extra crossings near x=0. The left
+    penumbra should pair the 20% and 80% crossings on the low-x side of the
+    peak, and the right penumbra should pair crossings on the high-x side.
     """
-    lines: List[str] = []
-    lines.append("[Basic dose analysis]\n")
+    crossings = all_level_crossings(positions, relative_dose, level)
+    if side == "left":
+        candidates = [x for x in crossings if x <= peak_position]
+        if not candidates:
+            return None
+        return max(candidates)
+    if side == "right":
+        candidates = [x for x in crossings if x >= peak_position]
+        if not candidates:
+            return None
+        return min(candidates)
+    raise ValueError("side must be 'left' or 'right'.")
 
-    metrics: Dict[str, object] = {
-        "central_profile_idx": int(central_profile_idx),
-        "central_profile_y": float(y_positions[central_profile_idx]),
-        "profile_norm": profile_norm,
-    }
 
-    # -------------------------------------------------------------------------
-    # Global maximum over the aligned 2D matrix
-    # -------------------------------------------------------------------------
-    # finds highest dose anywhere in the 2D aligned matrix
-    global_max = float(np.max(dose_matrix))
-    max_profile_idx, max_pos_idx = np.unravel_index(
-        np.argmax(dose_matrix),
-        dose_matrix.shape,
+def analyze_axis_profile(
+    axis_name: str,
+    positions_mm: np.ndarray,
+    dose_gy: np.ndarray,
+) -> Tuple[np.ndarray, AxisMetrics]:
+    """Normalize and calculate FWHM, flatness, symmetry, and penumbra."""
+    peak_index = int(np.argmax(dose_gy))
+    peak_position_mm = float(positions_mm[peak_index])
+    normalization_position_mm = peak_position_mm
+    normalization_dose_gy = float(dose_gy[peak_index])
+
+    if not np.isfinite(normalization_dose_gy) or np.isclose(normalization_dose_gy, 0.0):
+        raise ValueError("Profile normalization dose is zero or non-finite.")
+
+    for _ in range(20):
+        relative_trial = dose_gy / normalization_dose_gy
+        left_80_trial = peak_side_crossing(
+            positions_mm,
+            relative_trial,
+            0.8,
+            peak_position_mm,
+            "left",
+        )
+        right_80_trial = peak_side_crossing(
+            positions_mm,
+            relative_trial,
+            0.8,
+            peak_position_mm,
+            "right",
+        )
+        if left_80_trial is None or right_80_trial is None:
+            break
+
+        next_position = 0.5 * (left_80_trial + right_80_trial)
+        next_dose = float(np.interp(next_position, positions_mm, dose_gy))
+        if not np.isfinite(next_dose) or np.isclose(next_dose, 0.0):
+            break
+        if (
+            abs(next_position - normalization_position_mm) < 1e-6
+            and abs(next_dose - normalization_dose_gy) < 1e-9
+        ):
+            normalization_position_mm = float(next_position)
+            normalization_dose_gy = next_dose
+            break
+
+        normalization_position_mm = float(next_position)
+        normalization_dose_gy = next_dose
+
+    relative = dose_gy / normalization_dose_gy
+    peak_relative_dose = float(np.max(relative))
+    half_dose_level = 0.5
+
+    left_50 = peak_side_crossing(
+        positions_mm,
+        relative,
+        half_dose_level,
+        peak_position_mm,
+        "left",
     )
-
-    metrics["global_max"] = global_max
-    metrics["global_max_profile_idx"] = int(max_profile_idx)
-    metrics["global_max_y"] = float(y_positions[max_profile_idx])
-    metrics["global_max_x"] = float(x_positions[max_pos_idx])
-
-    lines.append(f"Global max dose: {global_max:.6f}\n")
-    lines.append(
-        "  -> at "
-        f"in-plane y = {y_positions[max_profile_idx]:.3f}, "
-        f"cross-plane x = {x_positions[max_pos_idx]:.3f}\n"
+    right_50 = peak_side_crossing(
+        positions_mm,
+        relative,
+        half_dose_level,
+        peak_position_mm,
+        "right",
     )
-
-    # -------------------------------------------------------------------------
-    # Dose along the physical x≈0 column
-    # -------------------------------------------------------------------------
-    # finds the x position closest to zero
-    central_axis_idx = int(np.argmin(np.abs(x_positions)))
-    central_axis_x = float(x_positions[central_axis_idx])
-    # take the whole vertical column at x = 0
-    central_axis_dose = dose_matrix[:, central_axis_idx]
-
-    metrics["central_axis_idx"] = central_axis_idx
-    metrics["central_axis_x"] = central_axis_x
-
-    lines.append(
-        f"\nCentral-axis column (x ≈ {central_axis_x:.3f}) dose stats:\n"
+    left_20 = peak_side_crossing(
+        positions_mm,
+        relative,
+        0.2,
+        peak_position_mm,
+        "left",
     )
-    lines.append(f"  Min:  {central_axis_dose.min():.6f}\n")
-    lines.append(f"  Max:  {central_axis_dose.max():.6f}\n")
-    lines.append(f"  Mean: {central_axis_dose.mean():.6f}\n")
-
-    # -------------------------------------------------------------------------
-    # FWHM of the physical central in-plane profile
-    # -------------------------------------------------------------------------
-    max_normalized = float(np.max(profile_norm))
-    half_max_level = 0.5 * max_normalized
-
-    x_left50 = interpolate_crossing(
-        x_positions,
-        profile_norm,
-        half_max_level,
-        side="left",
+    left_80 = peak_side_crossing(
+        positions_mm,
+        relative,
+        0.8,
+        peak_position_mm,
+        "left",
     )
-    x_right50 = interpolate_crossing(
-        x_positions,
-        profile_norm,
-        half_max_level,
-        side="right",
+    right_80 = peak_side_crossing(
+        positions_mm,
+        relative,
+        0.8,
+        peak_position_mm,
+        "right",
+    )
+    right_20 = peak_side_crossing(
+        positions_mm,
+        relative,
+        0.2,
+        peak_position_mm,
+        "right",
     )
 
     fwhm: Optional[float] = None
-
-    if x_left50 is not None and x_right50 is not None:
-        fwhm = float(x_right50 - x_left50)
-
-        metrics["FWHM"] = fwhm
-        metrics["x_left50"] = x_left50
-        metrics["x_right50"] = x_right50
-
-        lines.append(
-            "\nFWHM of central profile "
-            f"(in-plane y = {y_positions[central_profile_idx]:.3f}):\n"
-        )
-        lines.append(f"  FWHM = {fwhm:.3f}\n")
-        lines.append(
-            f"  Half-max interval: {x_left50:.3f} to {x_right50:.3f}\n"
-        )
-    else:
-        lines.append(
-            "\nCould not compute FWHM because both 50% crossings were not found.\n"
-        )
-
-    # -------------------------------------------------------------------------
-    # Flatness and symmetry in the central 80% of the FWHM-defined field
-    # -------------------------------------------------------------------------
+    field_center: Optional[float] = None
+    flat_left: Optional[float] = None
+    flat_right: Optional[float] = None
     flatness: Optional[float] = None
     symmetry: Optional[float] = None
 
-    if fwhm is not None and x_left50 is not None and x_right50 is not None:
-        field_center = 0.5 * (x_left50 + x_right50)
-        field_width = x_right50 - x_left50
+    if left_50 is not None and right_50 is not None:
+        fwhm = float(right_50 - left_50)
+        field_center = 0.5 * (left_50 + right_50)
+        flat_left = field_center - 0.4 * fwhm
+        flat_right = field_center + 0.4 * fwhm
 
-        # Central 80% means ±40% of the full field width around field center.
-        flat_left = field_center - 0.4 * field_width
-        flat_right = field_center + 0.4 * field_width
+        flat_mask = (positions_mm >= flat_left) & (positions_mm <= flat_right)
+        flat_values = relative[flat_mask]
+        if flat_values.size > 0:
+            dmax = float(np.max(flat_values))
+            dmin = float(np.min(flat_values))
+            if dmax + dmin > 0:
+                flatness = 100.0 * (dmax - dmin) / (dmax + dmin)
 
-        metrics["flat_left"] = float(flat_left)
-        metrics["flat_right"] = float(flat_right)
+        pair_differences: List[float] = []
+        for i in np.where(flat_mask)[0]:
+            mirrored_position = 2.0 * field_center - positions_mm[i]
+            mirrored_value = float(np.interp(mirrored_position, positions_mm, relative))
+            pair_differences.append(abs(float(relative[i]) - mirrored_value))
+        if pair_differences:
+            symmetry = 100.0 * max(pair_differences)
 
-        flat_mask = (
-            (x_positions >= flat_left)
-            & (x_positions <= flat_right)
-        )
-        profile_flat = profile_norm[flat_mask]
+    left_penumbra = None
+    right_penumbra = None
+    if left_20 is not None and left_80 is not None:
+        left_penumbra = abs(float(left_80 - left_20))
+    if right_20 is not None and right_80 is not None:
+        right_penumbra = abs(float(right_20 - right_80))
 
-        if profile_flat.size > 0:
-            dmax = float(np.max(profile_flat))
-            dmin = float(np.min(profile_flat))
-
-            denominator = dmax + dmin
-            if denominator > 0:
-                flatness = 100.0 * (dmax - dmin) / denominator
-
-                metrics["flatness"] = float(flatness)
-                metrics["Dmax_c"] = dmax
-                metrics["Dmin_c"] = dmin
-
-                lines.append(
-                    "\nFlatness in central 80% of FWHM-defined field:\n"
-                )
-                lines.append(f"  Dmax: {dmax:.6f}\n")
-                lines.append(f"  Dmin: {dmin:.6f}\n")
-                lines.append(f"  Flatness: {flatness:.2f} %\n")
-            else:
-                lines.append(
-                    "\nFlatness could not be computed because Dmax + Dmin "
-                    "was zero.\n"
-                )
-        else:
-            lines.append(
-                "\nFlatness could not be computed because the central "
-                "80% region contained no points.\n"
-            )
-
-        # Symmetry is evaluated around the measured field center, not blindly
-        # around x=0. That accommodates a slightly shifted field.
-        maximum_pair_difference = 0.0
-        pair_count = 0
-
-        central_indices = np.where(flat_mask)[0]
-
-        for i in central_indices:
-            mirrored_x = 2.0 * field_center - x_positions[i]
-            j = int(np.argmin(np.abs(x_positions - mirrored_x)))
-
-            if not flat_mask[j]:
-                continue
-
-            maximum_pair_difference = max(
-                maximum_pair_difference,
-                abs(float(profile_norm[i] - profile_norm[j])),
-            )
-            pair_count += 1
-
-        if pair_count > 0:
-            symmetry = 100.0 * maximum_pair_difference
-            metrics["symmetry"] = float(symmetry)
-
-            lines.append(
-                "\nSymmetry in central 80% of FWHM-defined field:\n"
-            )
-            lines.append(
-                "  Maximum paired normalized-dose difference: "
-                f"{symmetry:.2f} %\n"
-            )
-        else:
-            lines.append(
-                "\nSymmetry could not be computed because no mirrored "
-                "point pairs were available.\n"
-            )
-    else:
-        lines.append(
-            "\nFlatness and symmetry could not be computed without a "
-            "valid FWHM.\n"
-        )
-
-    # -------------------------------------------------------------------------
-    # 80%-20% penumbra
-    # -------------------------------------------------------------------------
-    x20_left = interpolate_crossing(
-        x_positions,
-        profile_norm,
-        0.2,
-        side="left",
+    metrics = AxisMetrics(
+        axis_name=axis_name,
+        normalization_position_mm=float(normalization_position_mm),
+        normalization_dose_gy=float(normalization_dose_gy),
+        peak_relative_dose=peak_relative_dose,
+        peak_position_mm=peak_position_mm,
+        half_dose_level=float(half_dose_level),
+        fwhm_mm=fwhm,
+        left_50_mm=left_50,
+        right_50_mm=right_50,
+        left_20_mm=left_20,
+        left_80_mm=left_80,
+        right_80_mm=right_80,
+        right_20_mm=right_20,
+        left_penumbra_mm=left_penumbra,
+        right_penumbra_mm=right_penumbra,
+        flatness_percent=flatness,
+        symmetry_percent=symmetry,
+        field_center_mm=field_center,
+        flat_region_left_mm=flat_left,
+        flat_region_right_mm=flat_right,
     )
-    x80_left = interpolate_crossing(
-        x_positions,
-        profile_norm,
-        0.8,
-        side="left",
-    )
-    x20_right = interpolate_crossing(
-        x_positions,
-        profile_norm,
-        0.2,
-        side="right",
-    )
-    x80_right = interpolate_crossing(
-        x_positions,
-        profile_norm,
-        0.8,
-        side="right",
-    )
+    return relative, metrics
 
-    metrics["x20_left"] = x20_left
-    metrics["x80_left"] = x80_left
-    metrics["x20_right"] = x20_right
-    metrics["x80_right"] = x80_right
 
-    lines.append(
-        "\n80%-20% penumbra, relative to central-axis normalization:\n"
-    )
+def write_matrix_csv(
+    path: Path,
+    x_positions_mm: np.ndarray,
+    y_positions_mm: np.ndarray,
+    matrix: np.ndarray,
+    value_name: str,
+    fmt: str = "%.10g",
+) -> None:
+    """Write an x-by-y matrix with physical-coordinate headers."""
+    header = ["crossplane_x_mm"] + [f"{value_name}_at_y_{y:g}_mm" for y in y_positions_mm]
+    output = np.column_stack([x_positions_mm, matrix.T])
+    np.savetxt(path, output, delimiter=",", header=",".join(header), comments="", fmt=fmt)
 
-    if x20_left is not None and x80_left is not None:
-        penumbra_left = abs(x80_left - x20_left)
-        metrics["penumbra_left"] = float(penumbra_left)
-        lines.append(
-            f"  Left:  x20 = {x20_left:.3f}, "
-            f"x80 = {x80_left:.3f}, "
-            f"width = {penumbra_left:.3f}\n"
+
+def write_method_matrix_csv(
+    path: Path,
+    x_positions_mm: np.ndarray,
+    y_positions_mm: np.ndarray,
+    interpolation_method: np.ndarray,
+) -> None:
+    """Write how each aligned matrix cell was produced."""
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["crossplane_x_mm"] + [f"method_at_y_{y:g}_mm" for y in y_positions_mm])
+        for col_idx, x_mm in enumerate(x_positions_mm):
+            writer.writerow([x_mm] + list(interpolation_method[:, col_idx]))
+
+
+def write_raw_measurements_csv(path: Path, profiles: List[Profile]) -> None:
+    """Write every original detector point before alignment/interpolation."""
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["scan_number", "inplane_y_mm", "crossplane_x_mm", "dose_gy"])
+        for profile in profiles:
+            for x_mm, dose_gy in zip(profile.x_mm, profile.dose_gy):
+                writer.writerow([profile.scan_number, profile.inplane_position_mm, x_mm, dose_gy])
+
+
+def write_profile_csv(
+    path: Path,
+    position_header: str,
+    positions_mm: np.ndarray,
+    dose_gy: np.ndarray,
+    relative_dose: np.ndarray,
+    measured_mask: np.ndarray,
+    interpolation_method: np.ndarray,
+) -> None:
+    """Write one central-axis profile with direct-measurement flags."""
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                position_header,
+                "dose_gy",
+                "relative_to_80_percent_midpoint",
+                "percent_of_80_percent_midpoint",
+                "directly_measured",
+                "interpolation_method",
+            ]
         )
-    else:
-        lines.append(
-            "  Left: could not determine both 20% and 80% crossings.\n"
-        )
-
-    if x20_right is not None and x80_right is not None:
-        penumbra_right = abs(x80_right - x20_right)
-        metrics["penumbra_right"] = float(penumbra_right)
-        lines.append(
-            f"  Right: x20 = {x20_right:.3f}, "
-            f"x80 = {x80_right:.3f}, "
-            f"width = {penumbra_right:.3f}\n"
-        )
-    else:
-        lines.append(
-            "  Right: could not determine both 20% and 80% crossings.\n"
-        )
-
-    report_text = "".join(lines)
-    metrics["report_text"] = report_text
-
-    print(report_text)
-
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write(report_text)
-
-    print(f"Analysis report saved to: {report_path}")
-
-    return metrics
+        for position, dose, relative, measured, method in zip(
+            positions_mm,
+            dose_gy,
+            relative_dose,
+            measured_mask,
+            interpolation_method,
+        ):
+            writer.writerow([position, dose, relative, 100.0 * relative, int(bool(measured)), method])
 
 
-# =============================================================================
-# 6. PLOT CENTRAL PROFILE
-# =============================================================================
+def write_metrics_report(
+    path: Path,
+    mcc_file: Path,
+    profiles: List[Profile],
+    x_positions_mm: np.ndarray,
+    y_positions_mm: np.ndarray,
+    dose_matrix: np.ndarray,
+    measured_mask: np.ndarray,
+    central_y_mm: float,
+    crossplane: AxisMetrics,
+) -> str:
+    """Write a text report and return its contents."""
+    measured_count = int(measured_mask.sum())
+    total_count = int(measured_mask.size)
+    global_row, global_col = np.unravel_index(np.argmax(dose_matrix), dose_matrix.shape)
 
-def plot_central_profile_with_annotations(
-    x_positions: np.ndarray,
-    profile_norm: np.ndarray,
-    metrics: Dict[str, object],
-    out_path_png: str,
-) -> plt.Figure:
-    """Plot the selected physical central profile and its beam metrics."""
-    fig, ax = plt.subplots(figsize=(9, 6))
-
-    ax.plot(
-        x_positions,
-        profile_norm,
-        marker="o",
-        markersize=3,
-        label="Central in-plane profile",
-    )
-
-    flat_left = metrics.get("flat_left")
-    flat_right = metrics.get("flat_right")
-
-    if flat_left is not None and flat_right is not None:
-        ax.axvspan(
-            float(flat_left),
-            float(flat_right),
-            alpha=0.15,
-            label="Central 80% field region",
-        )
-
-    x_left50 = metrics.get("x_left50")
-    x_right50 = metrics.get("x_right50")
-
-    if x_left50 is not None:
-        ax.axvline(
-            float(x_left50),
-            linestyle="--",
-            linewidth=1,
-            label="50% field edges",
-        )
-
-    if x_right50 is not None:
-        ax.axvline(
-            float(x_right50),
-            linestyle="--",
-            linewidth=1,
-        )
-
-    level_markers = [
-        (metrics.get("x20_left"), "20% left"),
-        (metrics.get("x80_left"), "80% left"),
-        (metrics.get("x20_right"), "20% right"),
-        (metrics.get("x80_right"), "80% right"),
+    lines = [
+        f"MCC file: {mcc_file.name}\n",
+        f"Profiles/rows parsed: {len(profiles)}\n",
+        f"Original detector spacing within a row: 10 mm\n",
+        f"Aligned x grid: {x_positions_mm[0]:.1f} to {x_positions_mm[-1]:.1f} mm, "
+        f"{np.median(np.diff(x_positions_mm)):.1f} mm spacing\n",
+        f"Y row grid: {y_positions_mm[0]:.1f} to {y_positions_mm[-1]:.1f} mm, "
+        f"{np.median(np.diff(y_positions_mm)):.1f} mm spacing\n",
+        f"Directly measured aligned cells: {measured_count} / {total_count} "
+        f"({100.0 * measured_count / total_count:.1f}%)\n",
+        "\nProfile normalization\n",
+        "  100% is set to the interpolated dose at the midpoint between the "
+        "left and right 80% crossings.\n",
+        f"  Normalization point: x = {crossplane.normalization_position_mm:.3f} mm, "
+        f"y = {central_y_mm:.1f} mm\n",
+        f"  Normalization dose: {crossplane.normalization_dose_gy:.8g} Gy\n",
+        "\n2D dose maximum\n",
+        f"  Max dose: {float(np.max(dose_matrix)):.8g} Gy at "
+        f"x = {x_positions_mm[global_col]:.1f} mm, y = {y_positions_mm[global_row]:.1f} mm\n",
     ]
 
-    for x_value, label in level_markers:
-        if x_value is None:
+    lines.extend(
+        [
+            f"\n{crossplane.axis_name} profile\n",
+            f"  Peak relative dose: {crossplane.peak_relative_dose:.6g} "
+            f"at {crossplane.peak_position_mm:.3f} mm\n",
+            f"  50% dose level: {crossplane.half_dose_level:.6g}\n",
+            f"  50% crossings: {format_optional(crossplane.left_50_mm)} mm, "
+            f"{format_optional(crossplane.right_50_mm)} mm\n",
+            f"  FWHM: {format_optional(crossplane.fwhm_mm)} mm\n",
+            f"  80%-20% penumbra left/right: "
+            f"{format_optional(crossplane.left_penumbra_mm)} mm, "
+            f"{format_optional(crossplane.right_penumbra_mm)} mm\n",
+            f"  Flatness in central 80% of FWHM field: "
+            f"{format_optional(crossplane.flatness_percent)} %\n",
+            f"  Symmetry in central 80% of FWHM field: "
+            f"{format_optional(crossplane.symmetry_percent)} %\n",
+        ]
+    )
+
+    report_text = "".join(lines)
+    path.write_text(report_text, encoding="utf-8")
+    return report_text
+
+
+def format_optional(value: Optional[float]) -> str:
+    if value is None:
+        return "NA"
+    return f"{value:.3f}"
+
+
+def plot_axis_profile(
+    path: Path,
+    title: str,
+    xlabel: str,
+    positions_mm: np.ndarray,
+    relative_dose: np.ndarray,
+    metrics: AxisMetrics,
+) -> plt.Figure:
+    """Plot one central-axis profile with analysis markers."""
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    ax.plot(positions_mm, relative_dose, marker="o", markersize=3, linewidth=1.4)
+    ax.axhline(metrics.half_dose_level, color="0.35", linestyle="--", linewidth=1, label="50% dose")
+    ax.axvline(
+        metrics.normalization_position_mm,
+        color="#1f7a1f",
+        linestyle="-.",
+        linewidth=1,
+        label="100% normalization point",
+    )
+
+    if metrics.flat_region_left_mm is not None and metrics.flat_region_right_mm is not None:
+        ax.axvspan(
+            metrics.flat_region_left_mm,
+            metrics.flat_region_right_mm,
+            alpha=0.14,
+            label="Central 80% of FWHM field",
+        )
+
+    for value, label, linestyle in [
+        (metrics.left_50_mm, "50%", "--"),
+        (metrics.right_50_mm, "50%", "--"),
+        (metrics.left_20_mm, "20%", ":"),
+        (metrics.left_80_mm, "80%", ":"),
+        (metrics.right_80_mm, "80%", ":"),
+        (metrics.right_20_mm, "20%", ":"),
+    ]:
+        if value is None:
             continue
+        ax.axvline(value, color="0.25", linestyle=linestyle, linewidth=0.9)
+        ax.text(value, 0.04, label, rotation=90, va="bottom", ha="right", fontsize=7)
 
-        x_value = float(x_value)
-        ax.axvline(x_value, linestyle=":", linewidth=1)
+    penumbra_specs = [
+        (metrics.left_20_mm, metrics.left_80_mm, metrics.left_penumbra_mm, "Left penumbra"),
+        (metrics.right_80_mm, metrics.right_20_mm, metrics.right_penumbra_mm, "Right penumbra"),
+    ]
+    for x_start, x_end, width_mm, label in penumbra_specs:
+        if x_start is None or x_end is None or width_mm is None:
+            continue
+        y_level = 0.8
+        ax.annotate(
+            "",
+            xy=(x_start, y_level),
+            xytext=(x_end, y_level),
+            arrowprops={"arrowstyle": "<->", "color": "#8a4f00", "linewidth": 1.4},
+        )
         ax.text(
-            x_value,
-            0.08,
-            label,
-            rotation=90,
+            0.5 * (x_start + x_end),
+            y_level + 0.04 * max(1.0, metrics.peak_relative_dose),
+            f"{label}: {width_mm:.1f} mm",
+            ha="center",
             va="bottom",
-            ha="right",
-            fontsize=7,
+            fontsize=8,
+            color="#8a4f00",
         )
 
-    subtitle_parts: List[str] = []
+    subtitle = []
+    if metrics.fwhm_mm is not None:
+        subtitle.append(f"FWHM {metrics.fwhm_mm:.1f} mm")
+    if metrics.flatness_percent is not None:
+        subtitle.append(f"Flatness {metrics.flatness_percent:.2f}%")
+    if metrics.symmetry_percent is not None:
+        subtitle.append(f"Symmetry {metrics.symmetry_percent:.2f}%")
 
-    if metrics.get("FWHM") is not None:
-        subtitle_parts.append(f"FWHM = {float(metrics['FWHM']):.1f}")
-
-    if metrics.get("flatness") is not None:
-        subtitle_parts.append(
-            f"Flatness = {float(metrics['flatness']):.1f}%"
-        )
-
-    if metrics.get("symmetry") is not None:
-        subtitle_parts.append(
-            f"Symmetry = {float(metrics['symmetry']):.1f}%"
-        )
-
-    central_y = float(metrics["central_profile_y"])
-    subtitle = " | ".join(subtitle_parts)
-
-    title = f"Central profile at in-plane y = {central_y:.1f}"
+    full_title = title
     if subtitle:
-        title += "\n" + subtitle
-
-    ax.set_xlabel("Cross-plane position")
-    ax.set_ylabel("Relative dose normalized at x ≈ 0")
-    ax.set_title(title)
-    ax.grid(True)
+        full_title += "\n" + " | ".join(subtitle)
+    ax.set_title(full_title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Relative dose, normalized at midpoint of 80% crossings")
+    ax.grid(True, alpha=0.35)
     ax.legend(loc="best", fontsize=8)
-
     fig.tight_layout()
-    fig.savefig(out_path_png, dpi=300)
-
-    print(f"Annotated central profile saved to: {out_path_png}")
-
+    fig.savefig(path, dpi=300)
     return fig
 
 
-# =============================================================================
-# 7. PLOT PHYSICALLY ALIGNED HEATMAP
-# =============================================================================
-
-def plot_and_save_dose_heatmap(
-    x_positions: np.ndarray,
-    y_positions: np.ndarray,
+def plot_heatmap(
+    path: Path,
+    title: str,
+    x_positions_mm: np.ndarray,
+    y_positions_mm: np.ndarray,
     dose_matrix: np.ndarray,
-    out_path_png: str,
-    title: str = "Dose heatmap: in-plane versus cross-plane position",
+    central_x_mm: float,
+    central_y_mm: float,
 ) -> plt.Figure:
-    """
-    Plot the aligned matrix using actual physical x and y coordinates.
-
-    pcolormesh is used instead of labeling rows merely by profile index.
-    It respects the supplied coordinate arrays and does not introduce an
-    additional display-only smoothing step.
-    :type y_positions: np.ndarray
-    """
-    fig, ax = plt.subplots(figsize=(9, 7))
-
+    """Plot the aligned 2D dose matrix without display smoothing."""
+    fig, ax = plt.subplots(figsize=(7.2, 6.4))
     image = ax.imshow(
         dose_matrix,
-        extent=[
-            x_positions[0],
-            x_positions[-1],
-            y_positions[0],
-            y_positions[-1],
-        ],
+        extent=[x_positions_mm[0], x_positions_mm[-1], y_positions_mm[0], y_positions_mm[-1]],
         origin="lower",
         interpolation="bicubic",
         aspect="equal",
     )
-
+    ax.axhline(central_y_mm, color="white", linewidth=0.9, linestyle="--")
+    ax.axvline(central_x_mm, color="white", linewidth=0.9, linestyle="--")
     colorbar = fig.colorbar(image, ax=ax)
-    colorbar.set_label("Dose")
-
-    ax.set_xlabel("Cross-plane position")
-    ax.set_ylabel("In-plane position")
+    colorbar.set_label("Dose (Gy)")
     ax.set_title(title)
-    ax.set_aspect("equal", adjustable="box")
-
+    ax.set_xlabel("Cross-plane x (mm)")
+    ax.set_ylabel("In-plane y (mm)")
     fig.tight_layout()
-    fig.savefig(out_path_png, dpi=300)
-
-    print(f"Heatmap plot saved to: {out_path_png}")
-
+    fig.savefig(path, dpi=300)
     return fig
 
 
-# =============================================================================
-# 8. MAIN
-# =============================================================================
+def svg_polyline(points: Iterable[Tuple[float, float]]) -> str:
+    return " ".join(f"{x:.2f},{y:.2f}" for x, y in points)
 
-def main() -> None:
-    # -------------------------------------------------------------------------
-    # Read the MCC file as explicit scan blocks
-    # -------------------------------------------------------------------------
-    profiles = read_mcc(MCC_FILE)
 
-    print(f"Number of profiles found: {len(profiles)}")
-    print(
-        "First profile: "
-        f"scan={profiles[0].scan_number}, "
-        f"in-plane={profiles[0].inplane_position:.3f}, "
-        f"points={len(profiles[0].x)}"
+def write_axis_profile_svg(
+    path: Path,
+    title: str,
+    xlabel: str,
+    positions_mm: np.ndarray,
+    relative_dose: np.ndarray,
+    metrics: AxisMetrics,
+) -> None:
+    """Write a dependency-free SVG profile plot."""
+    width = 900
+    height = 560
+    left = 78
+    right = 24
+    top = 64
+    bottom = 72
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+
+    xmin = float(np.min(positions_mm))
+    xmax = float(np.max(positions_mm))
+    ymax = max(1.05, float(np.max(relative_dose)) * 1.08)
+
+    def sx(x: float) -> float:
+        return left + (x - xmin) / (xmax - xmin) * plot_w
+
+    def sy(y: float) -> float:
+        return top + (ymax - y) / ymax * plot_h
+
+    polyline = svg_polyline((sx(float(x)), sy(float(y))) for x, y in zip(positions_mm, relative_dose))
+    title_text = escape(title)
+    xlabel_text = escape(xlabel)
+
+    elements = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="white"/>',
+        f'<text x="{left}" y="30" font-family="Arial" font-size="18" font-weight="700">{title_text}</text>',
+        f'<rect x="{left}" y="{top}" width="{plot_w}" height="{plot_h}" fill="#fafafa" stroke="#222" stroke-width="1"/>',
+    ]
+
+    for frac in np.linspace(0, 1.0, 6):
+        y = sy(float(frac))
+        elements.append(f'<line x1="{left}" x2="{left + plot_w}" y1="{y:.2f}" y2="{y:.2f}" stroke="#dddddd" stroke-width="1"/>')
+        elements.append(f'<text x="{left - 10}" y="{y + 4:.2f}" text-anchor="end" font-family="Arial" font-size="11">{frac:.1f}</text>')
+
+    for x in np.linspace(xmin, xmax, 7):
+        xp = sx(float(x))
+        elements.append(f'<line x1="{xp:.2f}" x2="{xp:.2f}" y1="{top}" y2="{top + plot_h}" stroke="#eeeeee" stroke-width="1"/>')
+        elements.append(f'<text x="{xp:.2f}" y="{top + plot_h + 20}" text-anchor="middle" font-family="Arial" font-size="11">{x:.0f}</text>')
+
+    if metrics.flat_region_left_mm is not None and metrics.flat_region_right_mm is not None:
+        x1 = sx(metrics.flat_region_left_mm)
+        x2 = sx(metrics.flat_region_right_mm)
+        elements.append(f'<rect x="{x1:.2f}" y="{top}" width="{x2 - x1:.2f}" height="{plot_h}" fill="#f2c94c" opacity="0.18"/>')
+
+    norm_x = sx(metrics.normalization_position_mm)
+    elements.append(f'<line x1="{norm_x:.2f}" x2="{norm_x:.2f}" y1="{top}" y2="{top + plot_h}" stroke="#1f7a1f" stroke-dasharray="8 4" stroke-width="1.3"/>')
+    elements.append(f'<text x="{norm_x + 4:.2f}" y="{top + 16}" font-family="Arial" font-size="10" fill="#1f7a1f">100% norm</text>')
+
+    half_y = sy(metrics.half_dose_level)
+    elements.append(f'<line x1="{left}" x2="{left + plot_w}" y1="{half_y:.2f}" y2="{half_y:.2f}" stroke="#555" stroke-dasharray="6 5"/>')
+
+    for value, label, dash in [
+        (metrics.left_50_mm, "50", "6 5"),
+        (metrics.right_50_mm, "50", "6 5"),
+        (metrics.left_20_mm, "20", "2 4"),
+        (metrics.left_80_mm, "80", "2 4"),
+        (metrics.right_80_mm, "80", "2 4"),
+        (metrics.right_20_mm, "20", "2 4"),
+    ]:
+        if value is None:
+            continue
+        xp = sx(float(value))
+        elements.append(f'<line x1="{xp:.2f}" x2="{xp:.2f}" y1="{top}" y2="{top + plot_h}" stroke="#444" stroke-dasharray="{dash}"/>')
+        elements.append(f'<text x="{xp + 4:.2f}" y="{top + plot_h - 8}" font-family="Arial" font-size="10">{label}%</text>')
+
+    for x_start, x_end, width_mm, label in [
+        (metrics.left_20_mm, metrics.left_80_mm, metrics.left_penumbra_mm, "Left penumbra"),
+        (metrics.right_80_mm, metrics.right_20_mm, metrics.right_penumbra_mm, "Right penumbra"),
+    ]:
+        if x_start is None or x_end is None or width_mm is None:
+            continue
+        x1 = sx(float(x_start))
+        x2 = sx(float(x_end))
+        y = sy(0.8)
+        text_x = 0.5 * (x1 + x2)
+        text_y = y - 12
+        elements.append(f'<line x1="{x1:.2f}" x2="{x2:.2f}" y1="{y:.2f}" y2="{y:.2f}" stroke="#8a4f00" stroke-width="2"/>')
+        elements.append(f'<line x1="{x1:.2f}" x2="{x1:.2f}" y1="{y - 5:.2f}" y2="{y + 5:.2f}" stroke="#8a4f00" stroke-width="2"/>')
+        elements.append(f'<line x1="{x2:.2f}" x2="{x2:.2f}" y1="{y - 5:.2f}" y2="{y + 5:.2f}" stroke="#8a4f00" stroke-width="2"/>')
+        elements.append(f'<text x="{text_x:.2f}" y="{text_y:.2f}" text-anchor="middle" font-family="Arial" font-size="11" fill="#8a4f00">{escape(label)}: {width_mm:.1f} mm</text>')
+
+    elements.append(f'<polyline fill="none" stroke="#0b5cad" stroke-width="2" points="{polyline}"/>')
+    for x, y in zip(positions_mm, relative_dose):
+        elements.append(f'<circle cx="{sx(float(x)):.2f}" cy="{sy(float(y)):.2f}" r="2.4" fill="#0b5cad"/>')
+
+    metric_parts = []
+    if metrics.fwhm_mm is not None:
+        metric_parts.append(f"FWHM {metrics.fwhm_mm:.1f} mm")
+    if metrics.flatness_percent is not None:
+        metric_parts.append(f"Flatness {metrics.flatness_percent:.2f}%")
+    if metrics.symmetry_percent is not None:
+        metric_parts.append(f"Symmetry {metrics.symmetry_percent:.2f}%")
+    if metric_parts:
+        elements.append(f'<text x="{left}" y="50" font-family="Arial" font-size="12">{escape(" | ".join(metric_parts))}</text>')
+
+    elements.extend(
+        [
+            f'<text x="{left + plot_w / 2}" y="{height - 22}" text-anchor="middle" font-family="Arial" font-size="13">{xlabel_text}</text>',
+            f'<text x="18" y="{top + plot_h / 2}" transform="rotate(-90 18 {top + plot_h / 2})" text-anchor="middle" font-family="Arial" font-size="13">Relative dose, normalized at midpoint of 80% crossings</text>',
+            "</svg>",
+        ]
     )
-    print(
-        "Last profile: "
-        f"scan={profiles[-1].scan_number}, "
-        f"in-plane={profiles[-1].inplane_position:.3f}, "
-        f"points={len(profiles[-1].x)}"
+    path.write_text("\n".join(elements), encoding="utf-8")
+
+
+def viridis_like_color(value: float) -> str:
+    """Small three-stop color map for dependency-free heatmap SVGs."""
+    rgb = viridis_like_rgb(value)
+    return f"rgb({rgb[0]},{rgb[1]},{rgb[2]})"
+
+
+def viridis_like_rgb(value: float) -> Tuple[int, int, int]:
+    """Small three-stop color map as RGB values."""
+    stops = [
+        (68, 1, 84),
+        (33, 145, 140),
+        (253, 231, 37),
+    ]
+    value = min(1.0, max(0.0, value))
+    if value <= 0.5:
+        lo, hi = stops[0], stops[1]
+        t = value / 0.5
+    else:
+        lo, hi = stops[1], stops[2]
+        t = (value - 0.5) / 0.5
+    rgb = [round(lo[i] + t * (hi[i] - lo[i])) for i in range(3)]
+    return int(rgb[0]), int(rgb[1]), int(rgb[2])
+
+
+def write_heatmap_png(
+    path: Path,
+    title: str,
+    x_positions_mm: np.ndarray,
+    y_positions_mm: np.ndarray,
+    dose_matrix: np.ndarray,
+    central_x_mm: float,
+    central_y_mm: float,
+) -> None:
+    """Write a smooth dependency-light PNG heatmap using Pillow."""
+    if Image is None or ImageDraw is None:
+        write_heatmap_svg(
+            path.with_suffix(".svg"),
+            title,
+            x_positions_mm,
+            y_positions_mm,
+            dose_matrix,
+            central_x_mm,
+            central_y_mm,
+        )
+        return
+
+    width = 900
+    height = 760
+    left = 92
+    right = 96
+    top = 64
+    bottom = 78
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    dmin = float(np.min(dose_matrix))
+    dmax = float(np.max(dose_matrix))
+    denom = dmax - dmin if dmax > dmin else 1.0
+
+    normalized = (dose_matrix - dmin) / denom
+    rgb = np.zeros((normalized.shape[0], normalized.shape[1], 3), dtype=np.uint8)
+    for row in range(normalized.shape[0]):
+        for col in range(normalized.shape[1]):
+            rgb[row, col, :] = viridis_like_rgb(float(normalized[row, col]))
+
+    heatmap = Image.fromarray(np.flipud(rgb), mode="RGB")
+    resampling = getattr(Image.Resampling, "BICUBIC", Image.BICUBIC)
+    heatmap = heatmap.resize((plot_w, plot_h), resampling)
+
+    canvas = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(canvas)
+    canvas.paste(heatmap, (left, top))
+
+    draw.rectangle([left, top, left + plot_w, top + plot_h], outline=(35, 35, 35), width=1)
+
+    def sx(x: float) -> float:
+        return left + (x - float(x_positions_mm[0])) / (float(x_positions_mm[-1]) - float(x_positions_mm[0])) * plot_w
+
+    def sy(y: float) -> float:
+        return top + (float(y_positions_mm[-1]) - y) / (float(y_positions_mm[-1]) - float(y_positions_mm[0])) * plot_h
+
+    center_x = sx(central_x_mm)
+    center_y = sy(central_y_mm)
+    draw.line([(center_x, top), (center_x, top + plot_h)], fill=(255, 255, 255), width=2)
+    draw.line([(left, center_y), (left + plot_w, center_y)], fill=(255, 255, 255), width=2)
+
+    draw.text((left, 26), title, fill=(20, 20, 20))
+    draw.text((left + plot_w // 2 - 55, height - 32), "Cross-plane x (mm)", fill=(20, 20, 20))
+    draw.text((12, top + plot_h // 2), "In-plane y (mm)", fill=(20, 20, 20))
+
+    for x in np.linspace(float(x_positions_mm[0]), float(x_positions_mm[-1]), 7):
+        px = sx(float(x))
+        draw.line([(px, top + plot_h), (px, top + plot_h + 5)], fill=(35, 35, 35), width=1)
+        draw.text((px - 12, top + plot_h + 9), f"{x:.0f}", fill=(20, 20, 20))
+
+    for y in np.linspace(float(y_positions_mm[0]), float(y_positions_mm[-1]), 7):
+        py = sy(float(y))
+        draw.line([(left - 5, py), (left, py)], fill=(35, 35, 35), width=1)
+        draw.text((left - 42, py - 6), f"{y:.0f}", fill=(20, 20, 20))
+
+    bar_x = left + plot_w + 26
+    bar_y = top
+    bar_w = 20
+    bar_h = plot_h
+    for i in range(bar_h):
+        value = 1.0 - i / max(1, bar_h - 1)
+        draw.line(
+            [(bar_x, bar_y + i), (bar_x + bar_w, bar_y + i)],
+            fill=viridis_like_rgb(value),
+            width=1,
+        )
+    draw.rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h], outline=(35, 35, 35), width=1)
+    draw.text((bar_x + 28, bar_y - 2), f"{dmax:.4g}", fill=(20, 20, 20))
+    draw.text((bar_x + 28, bar_y + bar_h - 10), f"{dmin:.4g}", fill=(20, 20, 20))
+    draw.text((bar_x - 4, bar_y + bar_h + 12), "Dose (Gy)", fill=(20, 20, 20))
+
+    canvas.save(path)
+
+
+def write_heatmap_svg(
+    path: Path,
+    title: str,
+    x_positions_mm: np.ndarray,
+    y_positions_mm: np.ndarray,
+    dose_matrix: np.ndarray,
+    central_x_mm: float,
+    central_y_mm: float,
+) -> None:
+    """Write a dependency-free SVG heatmap of the aligned matrix."""
+    width = 760
+    height = 700
+    left = 78
+    right = 28
+    top = 58
+    bottom = 64
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    rows, cols = dose_matrix.shape
+    cell_w = plot_w / cols
+    cell_h = plot_h / rows
+    dmin = float(np.min(dose_matrix))
+    dmax = float(np.max(dose_matrix))
+    denom = dmax - dmin if dmax > dmin else 1.0
+
+    elements = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="white"/>',
+        f'<text x="{left}" y="30" font-family="Arial" font-size="18" font-weight="700">{escape(title)}</text>',
+    ]
+
+    for row in range(rows):
+        for col in range(cols):
+            x = left + col * cell_w
+            y = top + (rows - row - 1) * cell_h
+            color = viridis_like_color((float(dose_matrix[row, col]) - dmin) / denom)
+            elements.append(f'<rect x="{x:.2f}" y="{y:.2f}" width="{cell_w + 0.2:.2f}" height="{cell_h + 0.2:.2f}" fill="{color}"/>')
+
+    def sx(x: float) -> float:
+        return left + (x - float(x_positions_mm[0])) / (float(x_positions_mm[-1]) - float(x_positions_mm[0])) * plot_w
+
+    def sy(y: float) -> float:
+        return top + (float(y_positions_mm[-1]) - y) / (float(y_positions_mm[-1]) - float(y_positions_mm[0])) * plot_h
+
+    elements.extend(
+        [
+            f'<rect x="{left}" y="{top}" width="{plot_w}" height="{plot_h}" fill="none" stroke="#222"/>',
+            f'<line x1="{sx(central_x_mm):.2f}" x2="{sx(central_x_mm):.2f}" y1="{top}" y2="{top + plot_h}" stroke="white" stroke-dasharray="6 5" stroke-width="1.2"/>',
+            f'<line x1="{left}" x2="{left + plot_w}" y1="{sy(central_y_mm):.2f}" y2="{sy(central_y_mm):.2f}" stroke="white" stroke-dasharray="6 5" stroke-width="1.2"/>',
+        ]
     )
 
-    # -------------------------------------------------------------------------
-    # Build a common, physically aligned x grid
-    # -------------------------------------------------------------------------
-    # turns staggered detector profiles into a coordinate-corrected 2D matrix
+    for x in np.linspace(float(x_positions_mm[0]), float(x_positions_mm[-1]), 7):
+        xp = sx(float(x))
+        elements.append(f'<text x="{xp:.2f}" y="{top + plot_h + 20}" text-anchor="middle" font-family="Arial" font-size="11">{x:.0f}</text>')
+    for y in np.linspace(float(y_positions_mm[0]), float(y_positions_mm[-1]), 7):
+        yp = sy(float(y))
+        elements.append(f'<text x="{left - 10}" y="{yp + 4:.2f}" text-anchor="end" font-family="Arial" font-size="11">{y:.0f}</text>')
+
+    elements.extend(
+        [
+            f'<text x="{left + plot_w / 2}" y="{height - 20}" text-anchor="middle" font-family="Arial" font-size="13">Cross-plane x (mm)</text>',
+            f'<text x="18" y="{top + plot_h / 2}" transform="rotate(-90 18 {top + plot_h / 2})" text-anchor="middle" font-family="Arial" font-size="13">In-plane y (mm)</text>',
+            f'<text x="{left}" y="{height - 42}" font-family="Arial" font-size="11">Dose color scale: {dmin:.4g} to {dmax:.4g} Gy</text>',
+            "</svg>",
+        ]
+    )
+    path.write_text("\n".join(elements), encoding="utf-8")
+
+
+def parse_setup_from_filename(stem: str) -> Dict[str, str]:
+    """Extract simple setup labels from filenames such as 9MeV_6_two_2cmoff."""
+    parts = stem.split("_")
+    result = {
+        "energy": parts[0] if len(parts) > 0 else "",
+        "field_cm": parts[1] if len(parts) > 1 and parts[1].isdigit() else "",
+        "plates": "",
+        "offset": "",
+    }
+    for part in parts[2:]:
+        if part in {"one", "two"}:
+            result["plates"] = part
+        elif result["offset"]:
+            result["offset"] += "_" + part
+        else:
+            result["offset"] = part
+    return result
+
+
+def metric_row(
+    mcc_file: Path,
+    setup: Dict[str, str],
+    axis: AxisMetrics,
+    central_y_mm: float,
+) -> Dict[str, object]:
+    """Convert one AxisMetrics object to a flat CSV row."""
+    return {
+        "file": mcc_file.name,
+        "energy": setup["energy"],
+        "field_cm": setup["field_cm"],
+        "plates": setup["plates"],
+        "offset": setup["offset"],
+        "axis": axis.axis_name,
+        "normalization_x_mm": axis.normalization_position_mm,
+        "profile_y_mm": central_y_mm,
+        "normalization_dose_gy": axis.normalization_dose_gy,
+        "peak_relative_dose": axis.peak_relative_dose,
+        "peak_position_mm": axis.peak_position_mm,
+        "fwhm_mm": axis.fwhm_mm,
+        "left_50_mm": axis.left_50_mm,
+        "right_50_mm": axis.right_50_mm,
+        "left_penumbra_mm": axis.left_penumbra_mm,
+        "right_penumbra_mm": axis.right_penumbra_mm,
+        "flatness_percent": axis.flatness_percent,
+        "symmetry_percent": axis.symmetry_percent,
+    }
+
+
+def process_mcc_file(mcc_file: Path, output_root: Path) -> List[Dict[str, object]]:
+    """Analyze one MCC file and save all generated profile outputs."""
+    profiles = read_mcc(mcc_file)
     (
-        x_positions,
-        y_positions,
+        x_positions_mm,
+        y_positions_mm,
         dose_matrix,
         measured_mask,
+        interpolation_method,
     ) = build_aligned_dose_matrix(profiles)
 
-    print(
-        "\nAligned dose matrix shape [n_inplane_rows, n_crossplane_points]: "
-        f"{dose_matrix.shape}"
-    )
-    print(
-        f"Cross-plane grid: {x_positions[0]:.3f} to "
-        f"{x_positions[-1]:.3f}"
-    )
-    print(
-        f"In-plane grid: {y_positions[0]:.3f} to "
-        f"{y_positions[-1]:.3f}"
-    )
-    print(
-        "Common cross-plane spacing: "
-        f"{np.median(np.diff(x_positions)):.3f}"
-    )
-    print(
-        "Directly measured aligned cells: "
-        f"{measured_mask.sum()} / {measured_mask.size}"
+    central_y_idx = int(np.argmin(np.abs(y_positions_mm)))
+    central_x_idx = int(np.argmin(np.abs(x_positions_mm)))
+    central_y_mm = float(y_positions_mm[central_y_idx])
+    central_x_mm = float(x_positions_mm[central_x_idx])
+
+    crossplane_dose = dose_matrix[central_y_idx, :]
+    crossplane_measured = measured_mask[central_y_idx, :]
+    crossplane_method = interpolation_method[central_y_idx, :]
+
+    crossplane_relative, crossplane_metrics = analyze_axis_profile(
+        "crossplane_x_at_y0",
+        x_positions_mm,
+        crossplane_dose,
     )
 
-    # -------------------------------------------------------------------------
-    # Select the profile physically nearest y=0
-    # -------------------------------------------------------------------------
-    central_profile_idx = int(np.argmin(np.abs(y_positions)))
-    central_profile_y = float(y_positions[central_profile_idx])
-    central_profile = dose_matrix[central_profile_idx, :]
+    scan_output_dir = output_root / mcc_file.stem
+    scan_output_dir.mkdir(parents=True, exist_ok=True)
 
-    central_axis_idx = int(np.argmin(np.abs(x_positions)))
-    central_axis_x = float(x_positions[central_axis_idx])
-    central_dose = float(central_profile[central_axis_idx])
+    write_raw_measurements_csv(scan_output_dir / "raw_detector_measurements.csv", profiles)
+    write_matrix_csv(scan_output_dir / "aligned_dose_matrix_gy.csv", x_positions_mm, y_positions_mm, dose_matrix, "dose_gy")
+    write_matrix_csv(
+        scan_output_dir / "measured_mask.csv",
+        x_positions_mm,
+        y_positions_mm,
+        measured_mask.astype(int),
+        "directly_measured",
+        fmt="%d",
+    )
+    write_method_matrix_csv(
+        scan_output_dir / "interpolation_method.csv",
+        x_positions_mm,
+        y_positions_mm,
+        interpolation_method,
+    )
+    np.save(scan_output_dir / "x_positions_mm.npy", x_positions_mm)
+    np.save(scan_output_dir / "y_positions_mm.npy", y_positions_mm)
+    np.save(scan_output_dir / "aligned_dose_matrix_gy.npy", dose_matrix)
+    np.save(scan_output_dir / "measured_mask.npy", measured_mask)
+    np.save(scan_output_dir / "interpolation_method.npy", interpolation_method)
 
-    if not np.isfinite(central_dose) or np.isclose(central_dose, 0.0):
-        raise ValueError(
-            "The selected central-axis dose is zero or non-finite, so the "
-            "central profile cannot be normalized."
-        )
-
-    profile_norm = central_profile / central_dose
-
-    print(f"\nCentral profile index: {central_profile_idx}")
-    print(f"Central profile y: {central_profile_y:.3f}")
-    print(
-        f"Central axis x ≈ {central_axis_x:.3f}, "
-        f"central dose = {central_dose:.6f}"
+    write_profile_csv(
+        scan_output_dir / "central_crossplane_profile.csv",
+        "crossplane_x_mm_at_y0",
+        x_positions_mm,
+        crossplane_dose,
+        crossplane_relative,
+        crossplane_measured,
+        crossplane_method,
     )
 
-    # -------------------------------------------------------------------------
-    # Save NumPy arrays
-    # -------------------------------------------------------------------------
-    x_npy_path = os.path.join(OUTPUT_DIR, "x_positions_aligned.npy")
-    y_npy_path = os.path.join(OUTPUT_DIR, "y_positions.npy")
-    dose_npy_path = os.path.join(OUTPUT_DIR, "dose_matrix_aligned.npy")
-    mask_npy_path = os.path.join(OUTPUT_DIR, "measured_mask.npy")
-
-    np.save(x_npy_path, x_positions)
-    np.save(y_npy_path, y_positions)
-    np.save(dose_npy_path, dose_matrix)
-    np.save(mask_npy_path, measured_mask)
-
-    print(f"x positions saved to: {x_npy_path}")
-    print(f"y positions saved to: {y_npy_path}")
-    print(f"Aligned dose matrix saved to: {dose_npy_path}")
-    print(f"Measured/interpolated mask saved to: {mask_npy_path}")
-
-    # -------------------------------------------------------------------------
-    # Save both raw and aligned CSV data
-    # -------------------------------------------------------------------------
-    raw_csv_path = os.path.join(
-        OUTPUT_DIR,
-        "raw_detector_measurements_Aluminum_midline_105SSD.csv",
-    )
-    aligned_csv_path = os.path.join(
-        OUTPUT_DIR,
-        "dose_matrix_aligned_Aluminum_midline_105SSD.csv",
-    )
-    mask_csv_path = os.path.join(
-        OUTPUT_DIR,
-        "measured_mask_Aluminum_midline_105SSD.csv",
-    )
-
-    save_raw_measurements_csv(raw_csv_path, profiles)
-    save_aligned_dose_csv(
-        aligned_csv_path,
-        x_positions,
-        y_positions,
+    report_text = write_metrics_report(
+        scan_output_dir / "analysis_report.txt",
+        mcc_file,
+        profiles,
+        x_positions_mm,
+        y_positions_mm,
         dose_matrix,
-    )
-    save_measured_mask_csv(
-        mask_csv_path,
-        x_positions,
-        y_positions,
         measured_mask,
+        central_y_mm,
+        crossplane_metrics,
     )
 
-    # -------------------------------------------------------------------------
-    # Analyze the aligned dose data
-    # -------------------------------------------------------------------------
-    report_path = os.path.join(
-        OUTPUT_DIR,
-        "dose_analysis_Aluminum_midline_105SSD.txt",
-    )
-
-    metrics = analyze_dose(
-        x_positions=x_positions,
-        y_positions=y_positions,
-        dose_matrix=dose_matrix,
-        report_path=report_path,
-        central_profile_idx=central_profile_idx,
-        profile_norm=profile_norm,
-    )
-
-    # -------------------------------------------------------------------------
-    # Create plots
-    # -------------------------------------------------------------------------
-    central_png = os.path.join(
-        OUTPUT_DIR,
-        "central_profile_annotated.png",
-    )
-    fig_profile = plot_central_profile_with_annotations(
-        x_positions=x_positions,
-        profile_norm=profile_norm,
-        metrics=metrics,
-        out_path_png=central_png,
-    )
-
-    heatmap_png = os.path.join(
-        OUTPUT_DIR,
-        "dose_heatmap_aligned.png",
-    )
-    fig_heatmap = plot_and_save_dose_heatmap(
-        x_positions=x_positions,
-        y_positions=y_positions,
-        dose_matrix=dose_matrix,
-        out_path_png=heatmap_png,
-        title="Aligned dose heatmap: in-plane vs cross-plane position",
-    )
-
-    # -------------------------------------------------------------------------
-    # Save the PDF report
-    # -------------------------------------------------------------------------
-    pdf_path = os.path.join(
-        OUTPUT_DIR,
-        "Aluminum_midline_105SSD_report.pdf",
-    )
-
-    with PdfPages(pdf_path) as pdf:
-        pdf.savefig(fig_profile)
-        pdf.savefig(fig_heatmap)
-
-        fig_text, ax = plt.subplots(figsize=(8.27, 11.69))
-        ax.axis("off")
-        ax.text(
-            0.02,
-            0.98,
-            str(metrics["report_text"]),
-            va="top",
-            ha="left",
-            family="monospace",
-            fontsize=9,
+    if plt is not None and PdfPages is not None:
+        figures: List[plt.Figure] = []
+        figures.append(
+            plot_axis_profile(
+                scan_output_dir / "central_crossplane_profile.png",
+                f"{mcc_file.stem}: central cross-plane profile at y = {central_y_mm:.1f} mm",
+                "Cross-plane x (mm)",
+                x_positions_mm,
+                crossplane_relative,
+                crossplane_metrics,
+            )
         )
-        fig_text.tight_layout()
-        pdf.savefig(fig_text)
-        plt.close(fig_text)
+        figures.append(
+            plot_heatmap(
+                scan_output_dir / "aligned_dose_heatmap.png",
+                f"{mcc_file.stem}: aligned dose heatmap",
+                x_positions_mm,
+                y_positions_mm,
+                dose_matrix,
+                central_x_mm,
+                central_y_mm,
+            )
+        )
+        with PdfPages(scan_output_dir / "profile_report.pdf") as pdf:
+            for fig in figures:
+                pdf.savefig(fig)
+            fig_text, ax = plt.subplots(figsize=(8.27, 11.69))
+            ax.axis("off")
+            ax.text(0.02, 0.98, report_text, va="top", ha="left", family="monospace", fontsize=8.5)
+            fig_text.tight_layout()
+            pdf.savefig(fig_text)
+            plt.close(fig_text)
 
-    print(f"PDF report saved to: {pdf_path}")
+        for fig in figures:
+            plt.close(fig)
+    else:
+        write_axis_profile_svg(
+            scan_output_dir / "central_crossplane_profile.svg",
+            f"{mcc_file.stem}: central cross-plane profile at y = {central_y_mm:.1f} mm",
+            "Cross-plane x (mm)",
+            x_positions_mm,
+            crossplane_relative,
+            crossplane_metrics,
+        )
+        write_heatmap_png(
+            scan_output_dir / "aligned_dose_heatmap.png",
+            f"{mcc_file.stem}: aligned dose heatmap",
+            x_positions_mm,
+            y_positions_mm,
+            dose_matrix,
+            central_x_mm,
+            central_y_mm,
+        )
 
-    # Close figures after they have been written to PNG and PDF.
-    plt.close(fig_profile)
-    plt.close(fig_heatmap)
+    setup = parse_setup_from_filename(mcc_file.stem)
+    return [
+        metric_row(mcc_file, setup, crossplane_metrics, central_y_mm),
+    ]
 
-    print(np.unique(np.diff(x_positions)))
-    print(np.unique(np.diff(y_positions)))
+
+def write_summary_csv(path: Path, rows: Iterable[Dict[str, object]]) -> None:
+    rows = list(rows)
+    if not rows:
+        return
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_summary_pdf(path: Path, rows: List[Dict[str, object]]) -> None:
+    """Write a compact multipage summary table."""
+    if plt is None or PdfPages is None:
+        return
+
+    with PdfPages(path) as pdf:
+        fig, ax = plt.subplots(figsize=(11, 8.5))
+        ax.axis("off")
+        ax.set_title("Batch summary: crossplane_x_at_y0", loc="left", fontsize=13, pad=14)
+
+        columns = [
+            "file",
+            "normalization_dose_gy",
+            "fwhm_mm",
+            "left_penumbra_mm",
+            "right_penumbra_mm",
+            "flatness_percent",
+            "symmetry_percent",
+        ]
+        table_data = []
+        for row in rows:
+            table_data.append(
+                [
+                    row["file"],
+                    f"{float(row['normalization_dose_gy']):.5g}",
+                    format_optional(row["fwhm_mm"]),
+                    format_optional(row["left_penumbra_mm"]),
+                    format_optional(row["right_penumbra_mm"]),
+                    format_optional(row["flatness_percent"]),
+                    format_optional(row["symmetry_percent"]),
+                ]
+            )
+
+        table = ax.table(
+            cellText=table_data,
+            colLabels=columns,
+            loc="center",
+            cellLoc="left",
+            colLoc="left",
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(6.8)
+        table.scale(1.0, 1.2)
+        fig.tight_layout()
+        pdf.savefig(fig)
+        plt.close(fig)
+
+
+def main() -> None:
+    if not INPUT_DIR.exists():
+        raise FileNotFoundError(f"Input directory does not exist: {INPUT_DIR}")
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    mcc_files = sorted(INPUT_DIR.glob("*.mcc"))
+    if not mcc_files:
+        raise FileNotFoundError(f"No .mcc files found in {INPUT_DIR}")
+
+    print(f"Found {len(mcc_files)} MCC files in {INPUT_DIR}")
+    print(f"Writing generated profiles to {OUTPUT_DIR}")
+
+    summary_rows: List[Dict[str, object]] = []
+    for mcc_file in mcc_files:
+        print(f"Processing {mcc_file.name}")
+        summary_rows.extend(process_mcc_file(mcc_file, OUTPUT_DIR))
+
+    write_summary_csv(OUTPUT_DIR / "batch_profile_summary.csv", summary_rows)
+    write_summary_pdf(OUTPUT_DIR / "batch_profile_summary.pdf", summary_rows)
+
+    print(f"Done. Summary CSV: {OUTPUT_DIR / 'batch_profile_summary.csv'}")
+    if (OUTPUT_DIR / "batch_profile_summary.pdf").exists():
+        print(f"Done. Summary PDF: {OUTPUT_DIR / 'batch_profile_summary.pdf'}")
+    else:
+        print(
+            "Matplotlib is not installed; wrote SVG profile plots and "
+            "Pillow PNG heatmaps instead of matplotlib PNG/PDF plots."
+        )
+
 
 if __name__ == "__main__":
     main()
