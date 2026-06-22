@@ -1,0 +1,41 @@
+Profile pair: 9MeV_10_one_2cmoff
+MCC file: 9MeV_10_one_2cmoff.mcc
+CSV file: 9MeV_10_one_2cmoff.csv
+MCC central in-plane y: 0.000 mm
+
+Normalization
+  Each profile is normalized to its own dose at the midpoint between the left and right 80% crossings.
+  MCC normalization: x = -14.8674 mm, dose = 1.9122865 Gy
+  CSV normalization: x = -15.8369 mm, dose = 1.9937808 Gy
+  CSV/MCC normalization dose ratio: 1.04262
+
+Alignment
+  Method: field-center
+  Field-center shift from 80% midpoint: 0.9695 mm
+  Applied CSV x shift: 0.9695 mm
+  Aligned x convention: x_aligned = csv_x + 0.9695 mm
+  Common comparison range: -99.000 to 100.000 mm (200 points)
+
+Point-by-point normalized-dose differences
+  >=10% profile:
+    Mean CSV-MCC: -1.8430 percentage points
+    Mean abs: 1.9809 percentage points
+    RMS: 3.1875 percentage points
+    Max abs: 8.9679 percentage points
+  >=80% high-dose region:
+    Mean CSV-MCC: -0.2642 percentage points
+    Mean abs: 0.4688 percentage points
+    RMS: 0.6322 percentage points
+    Max abs: 2.0133 percentage points
+  20%-80% penumbra/shoulder region:
+    Mean CSV-MCC: -5.5238 percentage points
+    Mean abs: 5.5238 percentage points
+    RMS: 5.9220 percentage points
+    Max abs: 8.9679 percentage points
+
+Penumbra and edge metrics, CSV minus MCC
+  FWHM difference: -2.0539 mm
+  Left 80%-20% penumbra difference: -1.0438 mm
+  Right 80%-20% penumbra difference: -1.6650 mm
+  Left 50% crossing position difference after alignment: 0.9632 mm
+  Right 50% crossing position difference after alignment: -1.0907 mm

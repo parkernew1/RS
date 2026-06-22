@@ -1,0 +1,44 @@
+Raw Gy profile pair: 9MeV_10_one_onaxis
+MCC file: 9MeV_10_one_onaxis.mcc
+CSV file: 9MeV_10_one_onaxis.csv
+
+Alignment
+  Method: field-center
+  Field-center shift from normalized 80% midpoint: 0.8299 mm
+  Applied CSV x shift: 0.8299 mm
+  Aligned x convention: x_aligned = csv_x + 0.8299 mm
+  Common comparison range: -99.000 to 100.000 mm (200 points)
+
+Absolute dose at 80%-midpoint normalization point
+  MCC: 1.889264 Gy at x = -25.3291 mm
+  CSV: 1.972493 Gy at aligned x = -25.3291 mm
+  CSV-MCC: 0.083229041 Gy (4.4054% of MCC)
+  CSV/MCC ratio: 1.04405
+
+Point-by-point raw-dose differences
+  >=10% profile:
+    Mean CSV-MCC: 0.028119 Gy
+    Mean abs: 0.070654 Gy
+    RMS: 0.074121 Gy
+    Max abs: 0.103125 Gy
+    Mean percent diff of MCC: -1.5793%
+    Mean CSV/MCC ratio: 0.984207
+  >=80% high-dose region:
+    Mean CSV-MCC: 0.081026 Gy
+    Mean abs: 0.081026 Gy
+    RMS: 0.082358 Gy
+    Max abs: 0.103125 Gy
+    Mean percent diff of MCC: 4.4385%
+    Mean CSV/MCC ratio: 1.044385
+  20%-80% penumbra/shoulder region:
+    Mean CSV-MCC: -0.043732 Gy
+    Mean abs: 0.058559 Gy
+    RMS: 0.063867 Gy
+    Max abs: 0.102335 Gy
+    Mean percent diff of MCC: -7.0768%
+    Mean CSV/MCC ratio: 0.929232
+
+Shape metrics retained for context, CSV minus MCC
+  FWHM difference: -1.7113 mm
+  Left 80%-20% penumbra difference: -0.9931 mm
+  Right 80%-20% penumbra difference: -1.1641 mm

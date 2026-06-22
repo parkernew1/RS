@@ -1,0 +1,44 @@
+Raw Gy profile pair: Trial
+MCC file: Trial.mcc
+CSV file: trial.csv
+
+Alignment
+  Method: field-center
+  Field-center shift from normalized 80% midpoint: -0.1614 mm
+  Applied CSV x shift: -0.1614 mm
+  Aligned x convention: x_aligned = csv_x + -0.1614 mm
+  Common comparison range: -100.000 to 99.000 mm (200 points)
+
+Absolute dose at 80%-midpoint normalization point
+  MCC: 1.8310931 Gy at x = -0.1769 mm
+  CSV: 1.9849944 Gy at aligned x = -0.1769 mm
+  CSV-MCC: 0.15390131 Gy (8.4049% of MCC)
+  CSV/MCC ratio: 1.08405
+
+Point-by-point raw-dose differences
+  >=10% profile:
+    Mean CSV-MCC: 0.141801 Gy
+    Mean abs: 0.141801 Gy
+    RMS: 0.145935 Gy
+    Max abs: 0.187787 Gy
+    Mean percent diff of MCC: 10.8190%
+    Mean CSV/MCC ratio: 1.108190
+  >=80% high-dose region:
+    Mean CSV-MCC: 0.157589 Gy
+    Mean abs: 0.157589 Gy
+    RMS: 0.158689 Gy
+    Max abs: 0.187787 Gy
+    Mean percent diff of MCC: 8.8859%
+    Mean CSV/MCC ratio: 1.088859
+  20%-80% penumbra/shoulder region:
+    Mean CSV-MCC: 0.100875 Gy
+    Mean abs: 0.100875 Gy
+    RMS: 0.102849 Gy
+    Max abs: 0.134228 Gy
+    Mean percent diff of MCC: 13.0603%
+    Mean CSV/MCC ratio: 1.130603
+
+Shape metrics retained for context, CSV minus MCC
+  FWHM difference: 0.4678 mm
+  Left 80%-20% penumbra difference: 0.4081 mm
+  Right 80%-20% penumbra difference: 0.4177 mm
