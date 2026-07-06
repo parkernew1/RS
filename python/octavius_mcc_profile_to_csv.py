@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import csv
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
+
+os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "matplotlib-cache"))
 
 try:
     import matplotlib
@@ -26,9 +30,9 @@ except ModuleNotFoundError:
     ImageDraw = None
 
 
-PROJECT_DIR = Path(__file__).resolve().parent
-INPUT_DIR = PROJECT_DIR / "Octavius_1500_copper"
-OUTPUT_DIR = PROJECT_DIR / "octavius_1500_copper_crossplane_profiles"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+INPUT_DIR = REPO_ROOT / "Octavius_Raystation_comparison_copper" / "All_MCC"
+OUTPUT_DIR = REPO_ROOT / "octavius_1500_copper_crossplane_profiles"
 
 NUMBER_PATTERN = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 

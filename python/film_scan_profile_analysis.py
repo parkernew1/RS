@@ -19,9 +19,12 @@ import glob
 import math
 import os
 import re
+import tempfile
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "matplotlib-cache"))
 
 import matplotlib.pyplot as plt
 import numpy as np

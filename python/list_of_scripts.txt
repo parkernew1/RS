@@ -1,0 +1,11 @@
+This is a list of python scripts that are either needed for analysis or already present.
+Current filenames are tracked in README.md in this folder.
+
+1. Film code that takes in scanned strip of film and creates dose profiles
+2. Film code that takes in scanned strip of film and creates PDDs
+3. Code that takes a dose information .dcm file and turns it into a dose profile CSV
+4. Code that takes a dose information .dcm file and turns it into a PDD CSV
+5. Octavius code that takes in a .mcc file and returns a dose profile CSV
+
+6. Comparison code that compares 1/5 and 3 (profile comparison - measured vs. computed)
+7. Comparison code that compares 2 and 4 (PDD comparison - measured vs. computed)
