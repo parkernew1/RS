@@ -69,16 +69,16 @@ CHANNEL = "red"
 # x_min/x_max define the profile length. y_min/y_max define the strip being averaged.
 # get this by xamining the the film beforehand. 
 # line up every film the same way when scanning
-X_MIN = 50
-X_MAX = 260
+X_MIN = 100
+X_MAX = 200
 Y_MIN = 50
 Y_MAX = 1480
 
 # ROI used only to sample the uniform calibration films.
-CALIBRATION_X_MIN = 60
-CALIBRATION_X_MAX = 210
-CALIBRATION_Y_MIN = 80
-CALIBRATION_Y_MAX = 260
+CALIBRATION_X_MIN = 50
+CALIBRATION_X_MAX = 200
+CALIBRATION_Y_MIN = 100
+CALIBRATION_Y_MAX = 250
 
 # Direction of profile.
 # "x" - average over y rows and profile left-to-right across columns.

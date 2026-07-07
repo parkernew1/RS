@@ -55,16 +55,16 @@ CHANNEL = "red"
 # PDD measurement ROI in pixel coordinates.
 # For PDDs, x_min/x_max define the strip width being averaged and y_min/y_max
 # define the depth direction when PDD_AXIS is "y".
-X_MIN = 50
-X_MAX = 220
+X_MIN = 100
+X_MAX = 200
 Y_MIN = 40
 Y_MAX = 770
 
 # Uniform patch sampled on the calibration films to build the dose curve.
-CALIBRATION_X_MIN = 60
-CALIBRATION_X_MAX = 210
-CALIBRATION_Y_MIN = 80
-CALIBRATION_Y_MAX = 260
+CALIBRATION_X_MIN = 50
+CALIBRATION_X_MAX = 200
+CALIBRATION_Y_MIN = 100
+CALIBRATION_Y_MAX = 250
 
 # "y" means depth runs top-to-bottom through the ROI. "x" means left-to-right.
 PDD_AXIS = "y"
