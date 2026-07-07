@@ -20,9 +20,9 @@ dist/
 
 # Local notebooks and generated data
 .ipynb_checkpoints/
-outputs/
-results/
+/outputs/
+/results/
 
 # Local duplicate exports / archives
-Octavius_1500_copper/
-Octavius_1500_copper.zip
+/Octavius_1500_copper/
+/Octavius_1500_copper.zip

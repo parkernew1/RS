@@ -25,7 +25,7 @@ from octavius_mcc_profile_to_csv import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_DIR = REPO_ROOT / "Octavius_Raystation_comparison_copper"
+DEFAULT_DATA_DIR = REPO_ROOT / "Trial Runs" / "Octavius_Raystation_comparison_copper"
 DEFAULT_CSV_DIR = DEFAULT_DATA_DIR / "All_CSV"
 DEFAULT_MCC_DIR = DEFAULT_DATA_DIR / "All_MCC"
 DEFAULT_OUTPUT_DIR = DEFAULT_DATA_DIR / "comparison_results"

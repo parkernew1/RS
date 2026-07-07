@@ -31,8 +31,8 @@ except ModuleNotFoundError:
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-INPUT_DIR = REPO_ROOT / "Octavius_Raystation_comparison_copper" / "All_MCC"
-OUTPUT_DIR = REPO_ROOT / "octavius_1500_copper_crossplane_profiles"
+INPUT_DIR = REPO_ROOT / "Trial Runs" / "Octavius_Raystation_comparison_copper" / "All_MCC"
+OUTPUT_DIR = REPO_ROOT / "Trial Runs" / "octavius_1500_copper_crossplane_profiles"
 
 NUMBER_PATTERN = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 
