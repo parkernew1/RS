@@ -7,7 +7,7 @@ This folder contains the Python code needed for the current analysis work.
 | Film scan to dose profiles | Present | `film_scan_profile_analysis.py` |
 | Film scan to PDDs | Present | `film_scan_pdd_analysis.py` |
 | DICOM dose file to dose profile CSV | Present | `dicom_dose_profile_to_csv.py` |
-| DICOM dose file to PDD CSV | Missing dedicated script | Not present |
+| DICOM dose file to PDD CSV | Present | `dicom_dose_pdd_to_csv.py` |
 | OCTAVIUS MCC file to dose profile CSV | Present | `octavius_mcc_profile_to_csv.py` |
 | Measured-vs-computed profile comparison | Present | `profile_comparison.py` |
 | Measured-vs-computed PDD comparison | Missing dedicated script | Not present |

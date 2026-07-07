@@ -143,6 +143,7 @@ def net_od_profile(
     roi: tuple[int, int, int, int],
     axis: str,
     reference_mode: str = "scalar_roi_mean",
+    reference_roi: tuple[int, int, int, int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return exposed intensity and netOD profiles for a scanned film.
 
@@ -151,18 +152,24 @@ def net_od_profile(
     computes pixel-wise netOD and then averages it into a profile.
     """
     exposed_roi = crop_roi(exposed_image, roi)
-    reference_roi = crop_roi(reference_image, roi)
     exposed_profile = profile_from_roi(exposed_roi, axis)
 
     mode = reference_mode.lower()
     if mode == "scalar_roi_mean":
-        reference_signal: np.ndarray | float = float(np.nanmean(reference_roi))
+        reference_crop = crop_roi(reference_image, reference_roi or roi)
+        reference_signal: np.ndarray | float = float(np.nanmean(reference_crop))
         od_profile = net_od_from_signals(reference_signal, exposed_profile)
     elif mode == "profile":
-        reference_signal = profile_from_roi(reference_roi, axis)
+        if reference_roi is not None and reference_roi != roi:
+            raise ValueError("profile reference mode requires the reference and exposed films to use the same ROI")
+        reference_crop = crop_roi(reference_image, roi)
+        reference_signal = profile_from_roi(reference_crop, axis)
         od_profile = net_od_from_signals(reference_signal, exposed_profile)
     elif mode == "image":
-        od_image = net_od_from_signals(reference_roi, exposed_roi)
+        if reference_roi is not None and reference_roi != roi:
+            raise ValueError("image reference mode requires the reference and exposed films to use the same ROI")
+        reference_crop = crop_roi(reference_image, roi)
+        od_image = net_od_from_signals(reference_crop, exposed_roi)
         od_profile = profile_from_roi(od_image, axis)
     else:
         raise ValueError("reference_mode must be 'scalar_roi_mean', 'profile', or 'image'")
@@ -258,7 +265,7 @@ def write_calibration_outputs(curve: CalibrationCurve, output_dir: Path, label: 
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / f"{label}_film_calibration_curve.csv"
     with csv_path.open("w", newline="") as csv_file:
-        writer = csv.writer(csv_file)
+        writer = csv.writer(csv_file, lineterminator="\n")
         writer.writerow(["dose_cgy", "net_od", "mean_signal", "source_file"])
         for point in curve.points:
             writer.writerow([point.dose_cgy, point.net_od, point.mean_signal, point.source_file.name])

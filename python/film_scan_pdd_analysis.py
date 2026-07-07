@@ -55,23 +55,23 @@ CHANNEL = "red"
 # PDD measurement ROI in pixel coordinates.
 # For PDDs, x_min/x_max define the strip width being averaged and y_min/y_max
 # define the depth direction when PDD_AXIS is "y".
-X_MIN = 550
-X_MAX = 1300
-Y_MIN = 100
-Y_MAX = 1300
+X_MIN = 50
+X_MAX = 220
+Y_MIN = 40
+Y_MAX = 770
 
 # Uniform patch sampled on the calibration films to build the dose curve.
-CALIBRATION_X_MIN = 550
-CALIBRATION_X_MAX = 1300
-CALIBRATION_Y_MIN = 100
-CALIBRATION_Y_MAX = 250
+CALIBRATION_X_MIN = 60
+CALIBRATION_X_MAX = 210
+CALIBRATION_Y_MIN = 80
+CALIBRATION_Y_MAX = 260
 
 # "y" means depth runs top-to-bottom through the ROI. "x" means left-to-right.
 PDD_AXIS = "y"
 
 # Use "forward" if depth increases with increasing pixel index after cropping.
 # Use "reverse" if the film was scanned with the deepest end first.
-DEPTH_DIRECTION = "forward"
+DEPTH_DIRECTION = "reverse"
 
 # Pixel size in mm/pixel.
 PIXEL_SIZE_MM = 0.127
@@ -193,7 +193,7 @@ def save_roi_qa_image(image: np.ndarray, source_path: Path, output_dir: Path) ->
 def save_pdd_csv(profile: PddProfile, output_dir: Path) -> Path:
     out_path = output_dir / f"pdd_{sanitize_filename(Path(profile.filename).stem)}.csv"
     with out_path.open("w", newline="") as csv_file:
-        writer = csv.writer(csv_file)
+        writer = csv.writer(csv_file, lineterminator="\n")
         writer.writerow([
             "depth_mm",
             "intensity",
@@ -250,10 +250,23 @@ def analyze_one_pdd(
         roi=(X_MIN, X_MAX, Y_MIN, Y_MAX),
         axis=PDD_AXIS,
         reference_mode=REFERENCE_MODE,
+        reference_roi=calibration.curve.roi,
     )
     intensity, net_od = apply_depth_direction(intensity, net_od)
 
     dose_cgy = calibration.curve.dose_cgy_from_net_od(net_od)
+    range_warnings: list[str] = []
+    high_clip_count = int(np.count_nonzero(net_od > calibration.curve.net_od[-1]))
+    low_clip_count = int(np.count_nonzero(net_od < calibration.curve.net_od[0]))
+    if high_clip_count:
+        range_warnings.append(
+            f"{high_clip_count}/{len(net_od)} PDD points exceeded "
+            f"{calibration.curve.max_dose_cgy:g} cGy calibration and were clipped"
+        )
+    if low_clip_count:
+        range_warnings.append(
+            f"{low_clip_count}/{len(net_od)} PDD points were below 0 cGy calibration and were clipped"
+        )
     dose_gy = dose_cgy / 100.0
     smoothed_dose_cgy = moving_average(dose_cgy, SMOOTHING_WINDOW_PIXELS)
 
@@ -297,7 +310,7 @@ def analyze_one_pdd(
         r50_depth_mm=distal_depth_at_percent(depth_mm, pdd_percent, 50.0),
         distal_20_depth_mm=distal_depth_at_percent(depth_mm, pdd_percent, 20.0),
         status="ok",
-        warning="",
+        warning="; ".join(range_warnings),
     )
 
     if SAVE_ROI_QA_IMAGES:
@@ -314,7 +327,7 @@ def save_summary_csv(results: Sequence[PddResult], output_dir: Path) -> Path:
     if not results:
         return out_path
     with out_path.open("w", newline="") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=list(asdict(results[0]).keys()))
+        writer = csv.DictWriter(csv_file, fieldnames=list(asdict(results[0]).keys()), lineterminator="\n")
         writer.writeheader()
         for result in results:
             writer.writerow(asdict(result))
@@ -366,6 +379,8 @@ def main() -> None:
         print(f"  dmax dose  : {result.dmax_dose_cgy:.3f} cGy")
         print(f"  R90/R80/R50: {fmt_optional(result.r90_depth_mm)} / "
               f"{fmt_optional(result.r80_depth_mm)} / {fmt_optional(result.r50_depth_mm)} mm")
+        if result.warning:
+            print(f"  Warning    : {result.warning}")
 
     summary_path = save_summary_csv(results, output_dir)
     print("\n" + "=" * 78)

@@ -69,22 +69,22 @@ CHANNEL = "red"
 # x_min/x_max define the profile length. y_min/y_max define the strip being averaged.
 # get this by xamining the the film beforehand. 
 # line up every film the same way when scanning
-X_MIN = 550
-X_MAX = 1300
-Y_MIN = 100
-Y_MAX = 250
+X_MIN = 50
+X_MAX = 260
+Y_MIN = 50
+Y_MAX = 1480
 
 # ROI used only to sample the uniform calibration films.
-CALIBRATION_X_MIN = 550
-CALIBRATION_X_MAX = 1300
-CALIBRATION_Y_MIN = 100
-CALIBRATION_Y_MAX = 250
+CALIBRATION_X_MIN = 60
+CALIBRATION_X_MAX = 210
+CALIBRATION_Y_MIN = 80
+CALIBRATION_Y_MAX = 260
 
 # Direction of profile.
 # "x" - average over y rows and profile left-to-right across columns.
 # "y" - average over x columns and profile top-to-bottom across rows.
-# x should be default for most cases
-PROFILE_AXIS = "x"
+# The current 6 MeV profile films are scanned as long vertical strips.
+PROFILE_AXIS = "y"
 
 # Pixel size in mm/pixel
 #   72 dpi  -> 25.4 / 72  = 0.3528 mm/pixel
@@ -575,7 +575,7 @@ def save_profile_csv(profile: ProfileData, output_dir: Path) -> None:
     safe_name = sanitize_filename(Path(profile.filename).stem)
     out_path = output_dir / f"profile_{safe_name}.csv"
     with out_path.open("w", newline="") as f:
-        writer = csv.writer(f)
+        writer = csv.writer(f, lineterminator="\n")
         writer.writerow([
             "x_mm",
             "intensity",
@@ -616,7 +616,7 @@ def save_summary_csv(results: Sequence[FilmResult], output_dir: Path) -> Path:
         return out_path
     fieldnames = list(asdict(results[0]).keys())
     with out_path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         for result in results:
             writer.writerow(asdict(result))
@@ -776,8 +776,21 @@ def analyze_one_film(
                 roi=(X_MIN, X_MAX, Y_MIN, Y_MAX),
                 axis=PROFILE_AXIS,
                 reference_mode=REFERENCE_MODE,
+                reference_roi=calibration.curve.roi,
             )
             dose_cgy_profile = calibration.curve.dose_cgy_from_net_od(od_profile)
+            range_warnings: List[str] = []
+            high_clip_count = int(np.count_nonzero(od_profile > calibration.curve.net_od[-1]))
+            low_clip_count = int(np.count_nonzero(od_profile < calibration.curve.net_od[0]))
+            if high_clip_count:
+                range_warnings.append(
+                    f"{high_clip_count}/{len(od_profile)} profile points exceeded "
+                    f"{calibration.curve.max_dose_cgy:g} cGy calibration and were clipped"
+                )
+            if low_clip_count:
+                range_warnings.append(
+                    f"{low_clip_count}/{len(od_profile)} profile points were below 0 cGy calibration and were clipped"
+                )
             dose_gy_profile = dose_cgy_profile / 100.0
             normalized_profile, norm_dose_cgy, true_mid_idx, warning = normalize_signal_profile(
                 signal_profile=dose_cgy_profile,
@@ -785,6 +798,8 @@ def analyze_one_film(
                 levels=MEASUREMENT_LEVELS,
                 subtract_min=False,
             )
+            if range_warnings:
+                warning = "; ".join([part for part in [warning, *range_warnings] if part])
             if true_mid_idx is None:
                 norm_idx = int(np.nanargmin(np.abs(dose_cgy_profile - norm_dose_cgy)))
             else:

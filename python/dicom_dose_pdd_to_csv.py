@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert RayStation RT Dose DICOM files to cross-plane profile CSVs."""
+"""Convert RayStation RT Dose DICOM files to central-axis PDD CSVs."""
 
 from __future__ import annotations
 
@@ -13,16 +13,15 @@ from scipy.interpolate import RegularGridInterpolator
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT_DIR = REPO_ROOT / "Actual Runs" / "Profiles" / "dcm"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "Actual Runs" / "Profiles" / "dcm-CSV"
+DEFAULT_INPUT_DIR = REPO_ROOT / "Actual Runs" / "PDDs" / "dcm"
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "Actual Runs" / "PDDs" / "dcm-CSV"
 
-# Legacy geometry from the earlier RayStation export script.
+# Legacy central-axis geometry from the earlier RayStation export script.
 DEFAULT_X_ISO_MM = 0.6
 DEFAULT_SURFACE_Y_MM = -377.1
 DEFAULT_Z_ISO_MM = 0.0
-DEFAULT_PROFILE_DEPTH_MM = 3.0
-DEFAULT_HALF_WIDTH_MM = 100.0
-DEFAULT_POINTS = 2001
+DEFAULT_MAX_DEPTH_MM = 105.0
+DEFAULT_POINTS = 1051
 
 
 def load_dose_grid(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -39,33 +38,37 @@ def load_dose_grid(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.n
     return z_mm, y_mm, x_mm, dose
 
 
-def extract_profile(
+def extract_pdd(
     dcm_path: Path,
     x_iso_mm: float,
     surface_y_mm: float,
     z_iso_mm: float,
-    profile_depth_mm: float,
-    half_width_mm: float,
+    max_depth_mm: float,
     n_points: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     z_mm, y_mm, x_mm, dose = load_dose_grid(dcm_path)
     interpolator = RegularGridInterpolator((z_mm, y_mm, x_mm), dose, bounds_error=False, fill_value=0.0)
 
-    x_positions = np.linspace(x_iso_mm - half_width_mm, x_iso_mm + half_width_mm, n_points)
-    y_positions = np.full_like(x_positions, surface_y_mm + profile_depth_mm)
-    z_positions = np.full_like(x_positions, z_iso_mm)
+    depth_mm = np.linspace(0.0, max_depth_mm, n_points)
+    x_positions = np.full_like(depth_mm, x_iso_mm)
+    y_positions = surface_y_mm + depth_mm
+    z_positions = np.full_like(depth_mm, z_iso_mm)
     dose_gy = interpolator((z_positions, y_positions, x_positions))
-    x_relative_mm = x_positions - x_iso_mm
-    return x_relative_mm, dose_gy
+    max_dose = float(np.nanmax(dose_gy))
+    if max_dose <= 0 or not np.isfinite(max_dose):
+        pdd_percent = np.full_like(dose_gy, np.nan)
+    else:
+        pdd_percent = dose_gy / max_dose * 100.0
+    return depth_mm, dose_gy, pdd_percent
 
 
-def write_profile_csv(path: Path, x_mm: np.ndarray, dose_gy: np.ndarray) -> None:
+def write_pdd_csv(path: Path, depth_mm: np.ndarray, dose_gy: np.ndarray, pdd_percent: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as csv_file:
         writer = csv.writer(csv_file, lineterminator="\n")
-        writer.writerow(["X [mm]", "Dose [Gy]"])
-        for x_value, dose_value in zip(x_mm, dose_gy):
-            writer.writerow([f"{x_value:.10g}", f"{dose_value:.10g}"])
+        writer.writerow(["Depth [mm]", "Dose [Gy]", "PDD [%]"])
+        for depth_value, dose_value, pdd_value in zip(depth_mm, dose_gy, pdd_percent):
+            writer.writerow([f"{depth_value:.10g}", f"{dose_value:.10g}", f"{pdd_value:.10g}"])
 
 
 def parse_args() -> argparse.Namespace:
@@ -75,8 +78,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--x-iso-mm", type=float, default=DEFAULT_X_ISO_MM)
     parser.add_argument("--surface-y-mm", type=float, default=DEFAULT_SURFACE_Y_MM)
     parser.add_argument("--z-iso-mm", type=float, default=DEFAULT_Z_ISO_MM)
-    parser.add_argument("--profile-depth-mm", type=float, default=DEFAULT_PROFILE_DEPTH_MM)
-    parser.add_argument("--half-width-mm", type=float, default=DEFAULT_HALF_WIDTH_MM)
+    parser.add_argument("--max-depth-mm", type=float, default=DEFAULT_MAX_DEPTH_MM)
     parser.add_argument("--points", type=int, default=DEFAULT_POINTS)
     return parser.parse_args()
 
@@ -90,28 +92,31 @@ def main() -> None:
         raise FileNotFoundError(f"No DICOM files found in {input_dir}")
 
     print("=" * 78)
-    print("RayStation DICOM dose profile export")
+    print("RayStation DICOM PDD export")
     print("=" * 78)
     print(f"Input folder     : {input_dir}")
     print(f"Output folder    : {output_dir}")
-    print(f"Profile depth    : {args.profile_depth_mm:g} mm from surface-y")
     print(f"Surface y        : {args.surface_y_mm:g} mm")
     print(f"Central axis     : x={args.x_iso_mm:g} mm, z={args.z_iso_mm:g} mm")
+    print(f"Max depth        : {args.max_depth_mm:g} mm")
     print("=" * 78)
 
     for dcm_path in dcm_files:
-        x_mm, dose_gy = extract_profile(
+        depth_mm, dose_gy, pdd_percent = extract_pdd(
             dcm_path=dcm_path,
             x_iso_mm=args.x_iso_mm,
             surface_y_mm=args.surface_y_mm,
             z_iso_mm=args.z_iso_mm,
-            profile_depth_mm=args.profile_depth_mm,
-            half_width_mm=args.half_width_mm,
+            max_depth_mm=args.max_depth_mm,
             n_points=args.points,
         )
         out_path = output_dir / f"{dcm_path.stem}.csv"
-        write_profile_csv(out_path, x_mm, dose_gy)
-        print(f"{dcm_path.name} -> {out_path.name}  max={np.nanmax(dose_gy):.6g} Gy")
+        write_pdd_csv(out_path, depth_mm, dose_gy, pdd_percent)
+        dmax_idx = int(np.nanargmax(dose_gy))
+        print(
+            f"{dcm_path.name} -> {out_path.name}  "
+            f"max={dose_gy[dmax_idx]:.6g} Gy at {depth_mm[dmax_idx]:.3f} mm"
+        )
 
     print("=" * 78)
     print("Done.")
