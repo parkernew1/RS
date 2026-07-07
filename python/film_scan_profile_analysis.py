@@ -30,18 +30,34 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tifffile as tiff
 
+from film_calibration import (
+    DEFAULT_CALIBRATION_DIR,
+    LoadedCalibration,
+    load_calibration_curve,
+    net_od_profile as calibrated_net_od_profile,
+    write_calibration_outputs,
+)
+
 
 
 # USER CONFIG
 
-# folder should contain one unexposed/reference scan plus one or more exposed scans.
-SCAN_FOLDER = Path(r"/path/to/scans")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# folder should contain one or more exposed profile film scans.
+SCAN_FOLDER = REPO_ROOT / "Actual Runs" / "Profiles" / "Scans"
+
+# where results should be saved.
+OUTPUT_FOLDER: Optional[Path] = REPO_ROOT / "Actual Runs" / "Profiles" / "Results"
+
+# Use the 6 MeV calibration film set to convert netOD profiles to dose.
+USE_DOSE_CALIBRATION = True
+CALIBRATION_FOLDER = DEFAULT_CALIBRATION_DIR
+CALIBRATION_LABEL = "6MeV"
 
 # searches for this text case-insensitively in TIFF filenames.
+# Only used when USE_DOSE_CALIBRATION is False.
 REFERENCE_NAME_CONTAINS = "unexposed"
-
-# where results should be saved - if None, an output folder is created
-OUTPUT_FOLDER: Optional[Path] = None
 
 # include these file extensions
 TIFF_PATTERNS = ("*.tif", "*.tiff", "*.TIF", "*.TIFF")
@@ -57,6 +73,12 @@ X_MIN = 550
 X_MAX = 1300
 Y_MIN = 100
 Y_MAX = 250
+
+# ROI used only to sample the uniform calibration films.
+CALIBRATION_X_MIN = 550
+CALIBRATION_X_MAX = 1300
+CALIBRATION_Y_MIN = 100
+CALIBRATION_Y_MAX = 250
 
 # Direction of profile.
 # "x" - average over y rows and profile left-to-right across columns.
@@ -115,10 +137,10 @@ FIELD_WIDTH_LEVELS = (20.0, 50.0, 80.0)
 ENERGY_REGEX = re.compile(r"(?<!\d)(6|9|12|15)(?:\s*mev|mev|\b)", re.IGNORECASE)
 
 # If True, the script saves per-film profile CSV files.
-SAVE_PROFILE_CSVS = False
+SAVE_PROFILE_CSVS = True
 
 # If True, save plot PNGs.
-SAVE_PLOTS = False
+SAVE_PLOTS = True
 
 # If True, show plots interactively at the end.
 SHOW_PLOTS = False
@@ -156,9 +178,12 @@ class FilmResult:
     od_mode: str
     normalization_method: str
     smoothing_window_pixels: int
+    calibration_used: bool
     normalization_value_od: float
+    normalization_dose_cgy: Optional[float]
     min_od: float
     max_od: float
+    max_dose_cgy: Optional[float]
     max_normalized_percent: float
     left_80_mm: Optional[float]
     left_20_mm: Optional[float]
@@ -186,6 +211,8 @@ class ProfileData:
     smoothed_profile: np.ndarray
     crossings: Dict[float, Tuple[Optional[float], Optional[float]]]
     true_mid_index: Optional[int]
+    dose_cgy_profile: Optional[np.ndarray] = None
+    dose_gy_profile: Optional[np.ndarray] = None
 
 
 # BASIC HELPERS
@@ -249,6 +276,20 @@ def read_tiff_channel(path: Path, channel: str) -> np.ndarray:
         f"Unsupported TIFF shape {image.shape} for {path.name}. "
         "Expected 2D grayscale or 3D RGB/RGBA image."
     )
+
+
+def channel_to_index(channel: str) -> int:
+    """Map the configured film channel to an RGB channel index for calibration."""
+    channel_lc = channel.lower()
+    if channel_lc == "red":
+        return 0
+    if channel_lc == "green":
+        return 1
+    if channel_lc == "blue":
+        return 2
+    if channel_lc in {"gray", "mean_rgb"}:
+        raise ValueError("Dose calibration currently requires CHANNEL red, green, or blue.")
+    raise ValueError(f"Unsupported CHANNEL={channel!r}. Use red, green, or blue for calibration.")
 
 
 def validate_roi(image_shape: Tuple[int, int], x_min: int, x_max: int, y_min: int, y_max: int) -> None:
@@ -364,27 +405,28 @@ def compute_od_profile(
     raise ValueError("OD_MODE must be 'od' or 'netod'.")
 
 
-def normalize_profile(
-    od_profile: np.ndarray,
+def normalize_signal_profile(
+    signal_profile: np.ndarray,
     method: str,
     levels: Sequence[float],
+    subtract_min: bool,
 ) -> Tuple[np.ndarray, float, Optional[int], str]:
     """
-    Normalize OD profile to percent.
+    Normalize a profile to percent.
 
     Returns:
         normalized_profile
-        normalization_value_od
+        normalization_value
         true_mid_index, when applicable
         warning string
     """
     warning = ""
-    od = od_profile.astype(np.float64)
-    min_od = float(np.min(od))
-    shifted = od - min_od
+    signal = signal_profile.astype(np.float64)
+    baseline = float(np.min(signal)) if subtract_min else 0.0
+    shifted = signal - baseline
 
     if np.allclose(np.max(shifted), 0):
-        raise ValueError("OD profile is flat after background subtraction; cannot normalize.")
+        raise ValueError("Profile is flat after baseline handling; cannot normalize.")
 
     method_lc = method.lower()
 
@@ -414,7 +456,7 @@ def normalize_profile(
             )
         else:
             true_mid_index = int(round((left + right) / 2.0))
-            true_mid_index = int(np.clip(true_mid_index, 0, len(od) - 1))
+            true_mid_index = int(np.clip(true_mid_index, 0, len(signal) - 1))
 
         norm_value_shifted = float(shifted[true_mid_index])
 
@@ -427,8 +469,22 @@ def normalize_profile(
         raise ValueError("Invalid normalization value; check ROI, film orientation, and reference scan.")
 
     normalized = shifted / norm_value_shifted * 100.0
-    normalization_value_od = norm_value_shifted + min_od
-    return normalized, normalization_value_od, true_mid_index, warning
+    normalization_value = norm_value_shifted + baseline
+    return normalized, normalization_value, true_mid_index, warning
+
+
+def normalize_profile(
+    od_profile: np.ndarray,
+    method: str,
+    levels: Sequence[float],
+) -> Tuple[np.ndarray, float, Optional[int], str]:
+    """Normalize OD profile to percent with the historical background subtraction."""
+    return normalize_signal_profile(
+        signal_profile=od_profile,
+        method=method,
+        levels=levels,
+        subtract_min=True,
+    )
 
 
 def find_crossing_one_side(
@@ -520,15 +576,37 @@ def save_profile_csv(profile: ProfileData, output_dir: Path) -> None:
     out_path = output_dir / f"profile_{safe_name}.csv"
     with out_path.open("w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["x_mm", "intensity", "od", "normalized_percent", "smoothed_percent"])
-        for row in zip(
-            profile.x_mm,
-            profile.intensity_profile,
-            profile.od_profile,
-            profile.normalized_profile,
-            profile.smoothed_profile,
+        writer.writerow([
+            "x_mm",
+            "intensity",
+            "net_od",
+            "dose_cgy",
+            "dose_gy",
+            "normalized_percent",
+            "smoothed_percent",
+        ])
+        dose_cgy = profile.dose_cgy_profile
+        dose_gy = profile.dose_gy_profile
+        for i, row in enumerate(
+            zip(
+                profile.x_mm,
+                profile.intensity_profile,
+                profile.od_profile,
+                profile.normalized_profile,
+                profile.smoothed_profile,
+            )
         ):
-            writer.writerow([f"{v:.10g}" for v in row])
+            dose_cgy_value = "" if dose_cgy is None else f"{dose_cgy[i]:.10g}"
+            dose_gy_value = "" if dose_gy is None else f"{dose_gy[i]:.10g}"
+            writer.writerow([
+                f"{row[0]:.10g}",
+                f"{row[1]:.10g}",
+                f"{row[2]:.10g}",
+                dose_cgy_value,
+                dose_gy_value,
+                f"{row[3]:.10g}",
+                f"{row[4]:.10g}",
+            ])
 
 
 def save_summary_csv(results: Sequence[FilmResult], output_dir: Path) -> Path:
@@ -552,15 +630,17 @@ def plot_profile(
     show: bool,
 ) -> None:
     """Create and optionally save one plot for one film profile."""
+    profile_label = "Relative dose" if result.calibration_used else "Normalized OD"
+    y_label = "Dose (% normalized)" if result.calibration_used else "OD (% normalized)"
     fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot(profile.x_mm, profile.normalized_profile, linewidth=1.5, alpha=0.55, label="Normalized OD")
+    ax.plot(profile.x_mm, profile.normalized_profile, linewidth=1.5, alpha=0.55, label=profile_label)
     ax.plot(profile.x_mm, profile.smoothed_profile, linewidth=2.0, label="Smoothed for metrics")
 
     draw_measurement_lines(ax, profile)
 
     ax.set_title(f"{profile.group} - {Path(profile.filename).stem}")
     ax.set_xlabel("Distance (mm)")
-    ax.set_ylabel("OD (% normalized)")
+    ax.set_ylabel(y_label)
     ax.grid(True, alpha=0.35)
     ax.legend(fontsize=8)
 
@@ -599,7 +679,7 @@ def plot_grouped_profiles(
         fig, axes = plt.subplots(n, 1, figsize=(9, max(3, 2.8 * n)), sharex=True)
         if n == 1:
             axes = [axes]
-        fig.suptitle(f"Film OD Profiles - {group}", fontsize=14)
+        fig.suptitle(f"Film Profiles - {group}", fontsize=14)
 
         for ax, profile in zip(axes, group_profiles):
             result = results_by_filename[profile.filename]
@@ -679,6 +759,7 @@ def analyze_one_film(
     film_path: Path,
     reference_image: np.ndarray,
     output_dir: Path,
+    calibration: Optional[LoadedCalibration] = None,
 ) -> Tuple[FilmResult, Optional[ProfileData]]:
     """Analyze one exposed film and return scalar metrics plus full profile data."""
     group = estimate_group_from_filename(film_path)
@@ -686,30 +767,59 @@ def analyze_one_film(
     try:
         exposed_image = read_tiff_channel(film_path, CHANNEL)
 
-        if exposed_image.shape != reference_image.shape:
-            raise ValueError(
-                f"Image shape mismatch: exposed {exposed_image.shape}, reference {reference_image.shape}. "
-                "Scans must have the same pixel dimensions for this script."
-            )
-
         validate_roi(exposed_image.shape, X_MIN, X_MAX, Y_MIN, Y_MAX)
 
-        exposed_roi = crop_roi(exposed_image, X_MIN, X_MAX, Y_MIN, Y_MAX)
-        reference_roi = crop_roi(reference_image, X_MIN, X_MAX, Y_MIN, Y_MAX)
+        if calibration is not None:
+            intensity_profile, od_profile = calibrated_net_od_profile(
+                exposed_image=exposed_image,
+                reference_image=calibration.reference_image,
+                roi=(X_MIN, X_MAX, Y_MIN, Y_MAX),
+                axis=PROFILE_AXIS,
+                reference_mode=REFERENCE_MODE,
+            )
+            dose_cgy_profile = calibration.curve.dose_cgy_from_net_od(od_profile)
+            dose_gy_profile = dose_cgy_profile / 100.0
+            normalized_profile, norm_dose_cgy, true_mid_idx, warning = normalize_signal_profile(
+                signal_profile=dose_cgy_profile,
+                method=NORMALIZATION_METHOD,
+                levels=MEASUREMENT_LEVELS,
+                subtract_min=False,
+            )
+            if true_mid_idx is None:
+                norm_idx = int(np.nanargmin(np.abs(dose_cgy_profile - norm_dose_cgy)))
+            else:
+                norm_idx = true_mid_idx
+            norm_value_od = float(od_profile[norm_idx])
+            calibration_used = True
 
-        intensity_profile, od_profile = compute_od_profile(
-            exposed_roi=exposed_roi,
-            reference_roi=reference_roi,
-            axis=PROFILE_AXIS,
-            reference_mode=REFERENCE_MODE,
-            od_mode=OD_MODE,
-        )
+        else:
+            dose_cgy_profile = None
+            dose_gy_profile = None
+            norm_dose_cgy = None
+            calibration_used = False
 
-        normalized_profile, norm_value_od, true_mid_idx, warning = normalize_profile(
-            od_profile=od_profile,
-            method=NORMALIZATION_METHOD,
-            levels=MEASUREMENT_LEVELS,
-        )
+            if exposed_image.shape != reference_image.shape:
+                raise ValueError(
+                    f"Image shape mismatch: exposed {exposed_image.shape}, reference {reference_image.shape}. "
+                    "Scans must have the same pixel dimensions for this script."
+                )
+
+            exposed_roi = crop_roi(exposed_image, X_MIN, X_MAX, Y_MIN, Y_MAX)
+            reference_roi = crop_roi(reference_image, X_MIN, X_MAX, Y_MIN, Y_MAX)
+
+            intensity_profile, od_profile = compute_od_profile(
+                exposed_roi=exposed_roi,
+                reference_roi=reference_roi,
+                axis=PROFILE_AXIS,
+                reference_mode=REFERENCE_MODE,
+                od_mode=OD_MODE,
+            )
+
+            normalized_profile, norm_value_od, true_mid_idx, warning = normalize_profile(
+                od_profile=od_profile,
+                method=NORMALIZATION_METHOD,
+                levels=MEASUREMENT_LEVELS,
+            )
 
         smoothed_profile = moving_average(normalized_profile, SMOOTHING_WINDOW_PIXELS)
 
@@ -751,9 +861,12 @@ def analyze_one_film(
             od_mode=OD_MODE,
             normalization_method=NORMALIZATION_METHOD,
             smoothing_window_pixels=SMOOTHING_WINDOW_PIXELS,
+            calibration_used=calibration_used,
             normalization_value_od=float(norm_value_od),
+            normalization_dose_cgy=None if norm_dose_cgy is None else float(norm_dose_cgy),
             min_od=float(np.min(od_profile)),
             max_od=float(np.max(od_profile)),
+            max_dose_cgy=None if dose_cgy_profile is None else float(np.nanmax(dose_cgy_profile)),
             max_normalized_percent=float(np.max(normalized_profile)),
             left_80_mm=left_80_mm,
             left_20_mm=left_20_mm,
@@ -778,6 +891,8 @@ def analyze_one_film(
             smoothed_profile=smoothed_profile,
             crossings=crossings,
             true_mid_index=true_mid_idx,
+            dose_cgy_profile=dose_cgy_profile,
+            dose_gy_profile=dose_gy_profile,
         )
 
         if SAVE_ROI_QA_IMAGES:
@@ -803,9 +918,12 @@ def analyze_one_film(
             od_mode=OD_MODE,
             normalization_method=NORMALIZATION_METHOD,
             smoothing_window_pixels=SMOOTHING_WINDOW_PIXELS,
+            calibration_used=calibration is not None,
             normalization_value_od=math.nan,
+            normalization_dose_cgy=None,
             min_od=math.nan,
             max_od=math.nan,
+            max_dose_cgy=None,
             max_normalized_percent=math.nan,
             left_80_mm=None,
             left_20_mm=None,
@@ -840,11 +958,29 @@ def main() -> None:
     if not all_tiffs:
         raise FileNotFoundError(f"No TIFF files found in {scan_folder}")
 
-    reference_path = select_reference_file(all_tiffs, REFERENCE_NAME_CONTAINS)
-    exposed_files = [f for f in all_tiffs if f != reference_path]
+    calibration: Optional[LoadedCalibration] = None
+    if USE_DOSE_CALIBRATION:
+        calibration = load_calibration_curve(
+            calibration_dir=CALIBRATION_FOLDER,
+            channel=channel_to_index(CHANNEL),
+            roi=(CALIBRATION_X_MIN, CALIBRATION_X_MAX, CALIBRATION_Y_MIN, CALIBRATION_Y_MAX),
+            patterns=TIFF_PATTERNS,
+        )
+        write_calibration_outputs(calibration.curve, output_dir, label=CALIBRATION_LABEL)
+        reference_path = calibration.curve.reference_file
+        reference_image = calibration.reference_image
+        exposed_files = [
+            f for f in all_tiffs
+            if REFERENCE_NAME_CONTAINS.lower() not in f.name.lower()
+        ]
+    else:
+        reference_path = select_reference_file(all_tiffs, REFERENCE_NAME_CONTAINS)
+        exposed_files = [f for f in all_tiffs if f != reference_path]
+        reference_image = read_tiff_channel(reference_path, CHANNEL)
+        validate_roi(reference_image.shape, X_MIN, X_MAX, Y_MIN, Y_MAX)
 
     if not exposed_files:
-        raise FileNotFoundError("No exposed film TIFFs found after excluding the reference scan.")
+        raise FileNotFoundError("No exposed profile film TIFFs found in the scan folder.")
 
     print("=" * 78)
     print("Robust film scan profile analysis")
@@ -852,6 +988,10 @@ def main() -> None:
     print(f"Scan folder      : {scan_folder}")
     print(f"Output folder    : {output_dir}")
     print(f"Reference file   : {reference_path.name}")
+    print(f"Dose calibration : {'enabled' if calibration is not None else 'disabled'}")
+    if calibration is not None:
+        print(f"Calibration dir  : {calibration.curve.calibration_dir}")
+        print(f"Calibration max  : {calibration.curve.max_dose_cgy:g} cGy")
     print(f"Exposed films    : {len(exposed_files)}")
     print(f"Channel          : {CHANNEL}")
     print(f"ROI              : x=[{X_MIN}, {X_MAX}), y=[{Y_MIN}, {Y_MAX})")
@@ -860,9 +1000,6 @@ def main() -> None:
     print(f"Normalization    : {NORMALIZATION_METHOD}")
     print("=" * 78)
 
-    reference_image = read_tiff_channel(reference_path, CHANNEL)
-    validate_roi(reference_image.shape, X_MIN, X_MAX, Y_MIN, Y_MAX)
-
     if SAVE_ROI_QA_IMAGES:
         save_roi_qa_image(reference_image, reference_path, output_dir)
 
@@ -870,7 +1007,7 @@ def main() -> None:
     profiles: List[ProfileData] = []
 
     for film_path in exposed_files:
-        result, profile = analyze_one_film(film_path, reference_image, output_dir)
+        result, profile = analyze_one_film(film_path, reference_image, output_dir, calibration)
         results.append(result)
         if profile is not None:
             profiles.append(profile)

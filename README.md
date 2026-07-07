@@ -12,6 +12,8 @@ remaining gaps from `list_of_scripts.txt`.
 ## Data
 
 - `Actual Runs/`: manuscript measurement workspace.
+  - `6MeV_calibration_films_07062026/`: 0, 50, 100, 150, 200, 250, and
+    300 cGy scanned calibration films for the current 6 MeV film workflow.
   - `Profiles/`: profile DICOM exports, scan files, converted CSVs, and results.
   - `PDDs/`: PDD DICOM exports, scan files, converted CSVs, and results.
   - `Output factors/`: manuscript output-factor measurements.

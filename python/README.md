@@ -5,7 +5,7 @@ This folder contains the Python code needed for the current analysis work.
 | Needed script | Current status | File |
 | --- | --- | --- |
 | Film scan to dose profiles | Present | `film_scan_profile_analysis.py` |
-| Film scan to PDDs | Missing dedicated script | Not present |
+| Film scan to PDDs | Present | `film_scan_pdd_analysis.py` |
 | DICOM dose file to dose profile CSV | Present | `dicom_dose_profile_to_csv.py` |
 | DICOM dose file to PDD CSV | Missing dedicated script | Not present |
 | OCTAVIUS MCC file to dose profile CSV | Present | `octavius_mcc_profile_to_csv.py` |
@@ -14,5 +14,7 @@ This folder contains the Python code needed for the current analysis work.
 
 Additional helper:
 
+- `film_calibration.py`: shared 6 MeV film calibration curve loading,
+  interpolation, and calibration output helpers.
 - `raw_dose_profile_comparison.py`: compares paired RayStation CSV and OCTAVIUS
   MCC profiles in absolute Gy, without dose normalization.
