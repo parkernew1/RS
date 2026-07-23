@@ -1,0 +1,33 @@
+Film CSV:  /Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/Scans-CSV/profile_Profile_6MeV_10_105_4_CC_3mm.csv
+DICOM CSV: /Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/dcm-CSV/Profile_6MeV_10_105_4_CC_3mm.csv
+
+Profile agreement metrics
+-------------------------
+Film x flipped:          False
+DICOM x flipped:         True
+Aligned by field center: True
+DICOM normalization:     dose at x = 0 mm is 100%
+Field center before alignment: film 104.619 mm, DICOM 7.699 mm, difference 96.920 mm
+
+Maximums
+  Film max relative:  104.168% at -36.801 mm
+  DICOM max relative: 105.885% at -38.099 mm
+  Film max dose:      1.65020 Gy
+  DICOM max dose:     1.56557 Gy
+
+Point-by-point relative dose comparison
+  Compared x range: -60.000 to 67.974 mm
+  Comparison points: 1008
+  Mean difference:   -0.336 percentage points
+  Mean abs diff:     1.837 percentage points
+  Max abs diff:      8.909 percentage points
+  RMS difference:    2.275 percentage points
+
+Field widths
+  80% width: film 87.668 mm, DICOM 87.128 mm, difference 0.540 mm
+  50% width: film 94.693 mm, DICOM 94.831 mm, difference -0.138 mm
+  20% width: film 103.070 mm, DICOM 103.200 mm, difference -0.130 mm
+
+Penumbra 80%-20%
+  Left: film 1.576 mm, DICOM 2.430 mm, difference -0.854 mm
+  Right: film 13.826 mm, DICOM 13.641 mm, difference 0.184 mm

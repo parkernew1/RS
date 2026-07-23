@@ -44,7 +44,7 @@ DICOM_PDD_CSV_PATH = Path(
 RESULTS_FOLDER = Path(
     "/Users/parkernew/Code/work/RS Project/Final/PDD/12MeV/Results"
 )
-SAVE_RESULTS = True
+SAVE_RESULTS = False
 
 # Ignore all points shallower than this depth.
 # This affects the plotted curves, dmax search, distal falloff metrics, and
