@@ -1,0 +1,27 @@
+Film CSV:  /Users/parkernew/Code/work/RS Project/Final/PDD/9MeV/Scans-CSV/PDD_9MeV_6_105_none.csv
+DICOM CSV: /Users/parkernew/Code/work/RS Project/Final/PDD/9MeV/dcm-CSV/PDD_9MeV_6_105_none.csv
+
+PDD agreement metrics
+---------------------
+Ignored shallow region: depths below 2 mm
+
+Dmax
+  Film depth:        20.574 mm
+  DICOM depth:       19.714 mm
+  Depth difference:  0.860 mm
+  Film dose:         1.8952 Gy
+  DICOM dose:        1.6056 Gy
+  Dose difference:   0.28962 Gy
+
+Point-by-point PDD comparison
+  Compared depth range: 2.000 to 95.504 mm
+  Comparison points: 737
+  Mean difference:   -0.863 percentage points
+  Mean abs diff:     5.299 percentage points
+  Max abs diff:      26.618 percentage points
+  RMS difference:    7.302 percentage points
+
+Distal falloff depths
+  R90: film 23.622 mm, DICOM 26.729 mm, difference -3.108 mm
+  R80: film 26.073 mm, DICOM 29.536 mm, difference -3.463 mm
+  R50: film 34.330 mm, DICOM 35.240 mm, difference -0.909 mm

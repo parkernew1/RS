@@ -44,7 +44,7 @@ COLOR_CHANNEL = "red"
 # Calibration-film ROI in pixel coordinates.
 # The script uses this same rectangular patch on every calibration film.
 # Format: x_min, x_max, y_min, y_max. The max values are not included.
-CALIBRATION_ROI = (75, 200, 150, 250)
+CALIBRATION_ROI = (70, 195, 85, 185)
 
 # PDD-film ROI in pixel coordinates.
 # The script averages across x and keeps the y direction as the depth curve.
