@@ -22,15 +22,16 @@ from scipy.interpolate import RegularGridInterpolator
 # ---------------------------------------------------------------------------
 
 # Folder containing the PDD DICOM dose files.
-DICOM_FOLDER = Path("/Users/parkernew/Code/work/RS Project/Final/PDD/6MeV/dcm")
+DICOM_FOLDER = Path('/Users/parkernew/Code/work/RS Project/Final/PDD/12MeV/dcm')
 
 # Folder where the CSV files should be written.
-CSV_OUTPUT_FOLDER = Path("/Users/parkernew/Code/work/RS Project/Final/PDD/6MeV/dcm-CSV")
+CSV_OUTPUT_FOLDER = Path('/Users/parkernew/Code/work/RS Project/Final/PDD/12MeV/dcm-CSV')
 
 # The PDD line starts at the phantom surface and goes deeper into the phantom.
 # These values come from the current RayStation PDD export geometry.
+# -377.1 for 100 SSD, -427.1 for 105 SSD, -477.1 for 110 SSD - WRONG
 SURFACE_Y_MM = -377.1
-DEEPEST_DEPTH_MM = 105.0
+DEEPEST_DEPTH_MM = 100.0
 
 # Central-axis location in the DICOM patient coordinate system.
 CENTRAL_AXIS_X_MM = 0.6
