@@ -30,12 +30,12 @@ import numpy as np
 
 # Enter the film profile CSV path here.
 FILM_PROFILE_CSV_PATH = Path(
-    '/Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/Scans-CSV/Profile_6MeV_10_105_4_Lead_3mm.csv'
+    '/Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/mcc-CSV/6MeV_CC_7point5.csv'
 )
 
 # Enter the DICOM/RayStation profile CSV path here.
 DICOM_PROFILE_CSV_PATH = Path(
-    '/Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/dcm-CSV/Profile_6MeV_10_105_4_Lead_3mm.csv'
+    '/Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/dcm-CSV/6MeV_CC_7point5.csv'
 )
 
 # Enter the folder where saved plots and metric text files should go.
@@ -44,7 +44,7 @@ DICOM_PROFILE_CSV_PATH = Path(
 RESULTS_FOLDER = Path(
     "/Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/Results"
 )
-SAVE_RESULTS = True
+SAVE_RESULTS = False
 
 # Profiles can point in opposite left/right directions depending on scanning
 # and RayStation export orientation. Change one of these to True if a profile

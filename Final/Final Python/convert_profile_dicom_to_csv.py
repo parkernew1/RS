@@ -4,7 +4,9 @@ Convert profile RT Dose DICOM files into CSV files.
 
 1. Put your DICOM folder path in DICOM_FOLDER.
 2. Put your desired CSV output folder path in CSV_OUTPUT_FOLDER.
-3. Run the script.
+3. Leave SINGLE_DICOM_FILE as None to convert the whole folder, or point it
+   to one DICOM file to convert just that file.
+4. Run the script.
 
 For each .dcm file, the script samples a horizontal dose profile at a chosen
 depth below the phantom surface. By default, that depth is 3 mm.
@@ -23,14 +25,20 @@ from scipy.interpolate import RegularGridInterpolator
 # ---------------------------------------------------------------------------
 
 # Folder containing the profile DICOM dose files.
-DICOM_FOLDER = Path('/Users/parkernew/Code/work/RS Project/Final/Profile/12MeV/dcm')
+DICOM_FOLDER = Path('/Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/dcm')
 
 # Folder where the CSV files should be written.
-CSV_OUTPUT_FOLDER = Path('/Users/parkernew/Code/work/RS Project/Final/Profile/12MeV/dcm-CSV')
+CSV_OUTPUT_FOLDER = Path('/Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/dcm-CSV')
+
+# If this is None, every DICOM file in DICOM_FOLDER is converted.
+# To convert only one file, enter its full path here.
+SINGLE_DICOM_FILE = Path('/Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/dcm/6MeV_CC_7point5.dcm')
+# Example:
+# SINGLE_DICOM_FILE = Path('/Users/parkernew/Code/work/RS Project/Final/Profile/12MeV/dcm/Profile_12MeV_10_105_4_Lead_3mm.dcm')
 
 # Depth of the profile below the phantom surface.
 # Example: 3.0 means "sample the profile at 3 mm depth."
-PROFILE_DEPTH_MM = 3.0
+PROFILE_DEPTH_MM = 7.5
 
 # The y position of the phantom surface in the DICOM patient coordinate system.
 # The profile is sampled at SURFACE_Y_MM + PROFILE_DEPTH_MM.
@@ -59,6 +67,17 @@ def find_dicom_files(folder):
     for pattern in ("*.dcm", "*.DCM"):
         dicom_files.extend(folder.glob(pattern))
     return sorted(dicom_files)
+
+
+def choose_dicom_files_to_convert():
+    """Use either one user-selected DICOM file or the whole DICOM_FOLDER."""
+    if SINGLE_DICOM_FILE is not None:
+        dicom_path = Path(SINGLE_DICOM_FILE).expanduser()
+        if not dicom_path.exists():
+            raise FileNotFoundError(f"SINGLE_DICOM_FILE does not exist: {dicom_path}")
+        return [dicom_path]
+
+    return find_dicom_files(DICOM_FOLDER)
 
 
 def read_dicom_dose_grid(dicom_path):
@@ -139,8 +158,8 @@ def write_profile_csv(csv_path, x_mm, dose_gy):
 # ---------------------------------------------------------------------------
 
 def main():
-    """Convert every .dcm file in DICOM_FOLDER."""
-    dicom_files = find_dicom_files(DICOM_FOLDER)
+    """Convert the selected DICOM file or every .dcm file in DICOM_FOLDER."""
+    dicom_files = choose_dicom_files_to_convert()
 
     if not dicom_files:
         print(f"No .dcm files were found in: {DICOM_FOLDER}")
@@ -151,6 +170,7 @@ def main():
     print("Profile DICOM to CSV conversion")
     print(f"DICOM folder:  {DICOM_FOLDER}")
     print(f"CSV folder:    {CSV_OUTPUT_FOLDER}")
+    print(f"Single file:   {SINGLE_DICOM_FILE}")
     print(f"Profile depth: {PROFILE_DEPTH_MM:g} mm")
     print(f"Surface y:     {SURFACE_Y_MM:g} mm")
     print()
