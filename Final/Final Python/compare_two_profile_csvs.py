@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Compare one film profile CSV against one DICOM/RayStation profile CSV.
+Compare one measured profile CSV against one DICOM/RayStation profile CSV.
 
 This script reads two profile CSV files, prints agreement metrics, and plots
-the profiles together.
+the profiles together. The measured profile can be a film CSV or an MCC CSV.
 the most important user settings are grouped near the top of the file.
 
 The easiest way to use it is to edit the user settings below, then run:
@@ -28,7 +28,8 @@ import numpy as np
 # User settings
 # ---------------------------------------------------------------------------
 
-# Enter the film profile CSV path here.
+# Enter the measured profile CSV path here.
+# This can be a film CSV or an MCC CSV.
 FILM_PROFILE_CSV_PATH = Path(
     '/Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/mcc-CSV/6MeV_CC_7point5.csv'
 )
@@ -44,23 +45,28 @@ DICOM_PROFILE_CSV_PATH = Path(
 RESULTS_FOLDER = Path(
     "/Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/Results"
 )
-SAVE_RESULTS = False
+SAVE_RESULTS = True
 
 # Profiles can point in opposite left/right directions depending on scanning
 # and RayStation export orientation. Change one of these to True if a profile
 # appears mirrored.
-FLIP_FILM_X = False
+FLIP_FILM_X = True
 FLIP_DICOM_X = True
 
 # If True, each profile is shifted so its field center is at x = 0 mm before
-# comparison. This is usually helpful because film x_mm starts at the ROI edge,
-# while DICOM x_mm is already centered on the central axis.
+# comparison. This is usually helpful because film x_mm may start at the ROI
+# edge, while DICOM x_mm is already centered on the central axis.
 ALIGN_PROFILES_BY_FIELD_CENTER = True
 
 # DICOM normalization point.
 # The DICOM dose at this x position becomes 100%.
 # For central-axis normalization, keep this at 0.0 mm.
 DICOM_NORMALIZATION_X_MM = 0.0
+
+# Measured-profile normalization point, used only when the measured CSV has
+# dose but no percent column. Film CSVs already have percent columns, so this
+# setting mostly applies to MCC CSVs.
+MEASURED_NORMALIZATION_X_MM = 0.0
 
 # Ignore the far tails if desired.
 # Example: -80.0 and 80.0 compare only the central 160 mm after any flipping
@@ -76,12 +82,13 @@ COMPARISON_MAX_X_MM = None
 class ProfileCurve:
     """One profile curve loaded from a CSV file."""
 
-    def __init__(self, label, path, x_mm, dose_gy, relative_percent):
+    def __init__(self, label, path, x_mm, dose_gy, relative_percent, normalization_description):
         self.label = label
         self.path = path
         self.x_mm = x_mm
         self.dose_gy = dose_gy
         self.relative_percent = relative_percent
+        self.normalization_description = normalization_description
 
 
 # ---------------------------------------------------------------------------
@@ -183,23 +190,42 @@ def sorted_unique(x_mm, values):
 
 
 def read_film_profile_csv(path):
-    """Read a film profile CSV written by convert_film_profile_to_csv.py."""
+    """Read a measured profile CSV from film or MCC."""
     columns = read_numeric_columns(
         path=path,
-        label="Film",
+        label="Measured",
         column_options=[
             ("x_mm", ["x_mm", "X [mm]", "X mm"], True),
-            ("relative_percent", ["smoothed_percent", "normalized_percent"], True),
+            ("relative_percent", ["smoothed_percent", "normalized_percent"], False),
             ("dose_gy", ["dose_gy", "Dose [Gy]", "Dose Gy"], False),
         ],
     )
 
-    x_mm, relative_percent = sorted_unique(
-        columns["x_mm"],
-        columns["relative_percent"],
-    )
-
     dose_gy = columns["dose_gy"]
+    if len(columns["relative_percent"]) == len(columns["x_mm"]):
+        x_mm, relative_percent = sorted_unique(
+            columns["x_mm"],
+            columns["relative_percent"],
+        )
+        normalization_description = "read from measured CSV percent column"
+    elif len(dose_gy) == len(columns["x_mm"]):
+        x_mm, dose_for_normalization = sorted_unique(columns["x_mm"], dose_gy)
+        relative_percent = normalize_dose_at_x_position(
+            x_mm,
+            dose_for_normalization,
+            MEASURED_NORMALIZATION_X_MM,
+            label="Measured",
+        )
+        normalization_description = (
+            f"dose at x = {MEASURED_NORMALIZATION_X_MM:g} mm is 100%"
+        )
+    else:
+        raise ValueError(
+            "The measured CSV must contain either a percent column "
+            "(smoothed_percent or normalized_percent) or a dose column "
+            "(Dose [Gy] or dose_gy)."
+        )
+
     if len(dose_gy) == len(columns["x_mm"]):
         dose_x, dose_gy = sorted_unique(columns["x_mm"], dose_gy)
         dose_gy = np.interp(x_mm, dose_x, dose_gy)
@@ -207,11 +233,12 @@ def read_film_profile_csv(path):
         dose_gy = np.full_like(x_mm, np.nan, dtype=float)
 
     return ProfileCurve(
-        label="Film",
+        label="Measured",
         path=Path(path).expanduser(),
         x_mm=x_mm,
         dose_gy=dose_gy,
         relative_percent=relative_percent,
+        normalization_description=normalization_description,
     )
 
 
@@ -235,6 +262,7 @@ def read_dicom_profile_csv(path):
         x_mm=x_mm,
         dose_gy=dose_gy,
         relative_percent=relative_percent,
+        normalization_description=f"dose at x = {DICOM_NORMALIZATION_X_MM:g} mm is 100%",
     )
 
 
@@ -290,21 +318,31 @@ def field_center(x_mm, relative_percent):
     return float(x_mm[max_index])
 
 
-def normalize_dicom_dose_at_x_zero(x_mm, dose_gy):
-    """Normalize DICOM dose so the dose at DICOM_NORMALIZATION_X_MM is 100%."""
+def normalize_dose_at_x_position(x_mm, dose_gy, normalization_x_mm, label):
+    """Normalize a dose profile so the dose at one x position is 100%."""
     minimum_x = float(np.min(x_mm))
     maximum_x = float(np.max(x_mm))
-    if not (minimum_x <= DICOM_NORMALIZATION_X_MM <= maximum_x):
+    if not (minimum_x <= normalization_x_mm <= maximum_x):
         raise ValueError(
-            f"DICOM_NORMALIZATION_X_MM={DICOM_NORMALIZATION_X_MM:g} mm is outside "
-            f"the DICOM profile range {minimum_x:g} to {maximum_x:g} mm."
+            f"{label} normalization x={normalization_x_mm:g} mm is outside "
+            f"the {label} profile range {minimum_x:g} to {maximum_x:g} mm."
         )
 
-    normalization_dose = float(np.interp(DICOM_NORMALIZATION_X_MM, x_mm, dose_gy))
+    normalization_dose = float(np.interp(normalization_x_mm, x_mm, dose_gy))
     if not math.isfinite(normalization_dose) or normalization_dose <= 0:
-        raise ValueError("DICOM profile has no positive dose values.")
+        raise ValueError(f"{label} profile has no positive dose at the normalization point.")
 
     return dose_gy / normalization_dose * 100.0
+
+
+def normalize_dicom_dose_at_x_zero(x_mm, dose_gy):
+    """Normalize DICOM dose so the dose at DICOM_NORMALIZATION_X_MM is 100%."""
+    return normalize_dose_at_x_position(
+        x_mm,
+        dose_gy,
+        DICOM_NORMALIZATION_X_MM,
+        label="DICOM",
+    )
 
 
 def apply_orientation_and_alignment(film, dicom):
@@ -347,6 +385,7 @@ def apply_orientation_and_alignment(film, dicom):
         x_mm=film_x,
         dose_gy=film_dose_gy,
         relative_percent=film_percent,
+        normalization_description=film.normalization_description,
     )
     transformed_dicom = ProfileCurve(
         label=dicom.label,
@@ -354,6 +393,7 @@ def apply_orientation_and_alignment(film, dicom):
         x_mm=dicom_x,
         dose_gy=dicom_dose_gy,
         relative_percent=dicom_percent,
+        normalization_description=dicom.normalization_description,
     )
 
     alignment_info = {
@@ -501,30 +541,31 @@ def build_metrics_text(film, dicom, metrics):
     """Build the same agreement text that appears in the terminal."""
     lines = []
 
-    lines.append(f"Film CSV:  {film.path}")
-    lines.append(f"DICOM CSV: {dicom.path}")
+    lines.append(f"Measured CSV: {film.path}")
+    lines.append(f"DICOM CSV:    {dicom.path}")
     lines.append("")
     lines.append("Profile agreement metrics")
     lines.append("-------------------------")
-    lines.append(f"Film x flipped:          {FLIP_FILM_X}")
+    lines.append(f"Measured x flipped:      {FLIP_FILM_X}")
     lines.append(f"DICOM x flipped:         {FLIP_DICOM_X}")
     lines.append(f"Aligned by field center: {ALIGN_PROFILES_BY_FIELD_CENTER}")
+    lines.append(f"Measured normalization:  {film.normalization_description}")
     lines.append(
         "DICOM normalization:     "
-        f"dose at x = {DICOM_NORMALIZATION_X_MM:g} mm is 100%"
+        f"{dicom.normalization_description}"
     )
     lines.append(
         "Field center before alignment: "
-        f"film {metrics['film_center_before_alignment_mm']:.3f} mm, "
+        f"measured {metrics['film_center_before_alignment_mm']:.3f} mm, "
         f"DICOM {metrics['dicom_center_before_alignment_mm']:.3f} mm, "
         f"difference {metrics['center_difference_before_alignment_mm']:.3f} mm"
     )
     lines.append("")
 
     lines.append("Maximums")
-    lines.append(f"  Film max relative:  {metrics['film']['max_percent']:.3f}% at {metrics['film']['max_x_mm']:.3f} mm")
+    lines.append(f"  Measured max relative: {metrics['film']['max_percent']:.3f}% at {metrics['film']['max_x_mm']:.3f} mm")
     lines.append(f"  DICOM max relative: {metrics['dicom']['max_percent']:.3f}% at {metrics['dicom']['max_x_mm']:.3f} mm")
-    lines.append(f"  Film max dose:      {format_optional(metrics['film']['max_dose_gy'], 5)} Gy")
+    lines.append(f"  Measured max dose:  {format_optional(metrics['film']['max_dose_gy'], 5)} Gy")
     lines.append(f"  DICOM max dose:     {format_optional(metrics['dicom']['max_dose_gy'], 5)} Gy")
     lines.append("")
 
@@ -556,7 +597,7 @@ def build_metrics_text(film, dicom, metrics):
     lines.append("Field widths")
     for level in [80, 50, 20]:
         lines.append(
-            f"  {level}% width: film {format_optional(metrics['film'][f'width_{level}_mm'])} mm, "
+            f"  {level}% width: measured {format_optional(metrics['film'][f'width_{level}_mm'])} mm, "
             f"DICOM {format_optional(metrics['dicom'][f'width_{level}_mm'])} mm, "
             f"difference {format_optional(metrics[f'width_{level}_difference_mm'])} mm"
         )
@@ -565,7 +606,7 @@ def build_metrics_text(film, dicom, metrics):
     lines.append("Penumbra 80%-20%")
     for side in ["left", "right"]:
         lines.append(
-            f"  {side.capitalize()}: film {format_optional(metrics['film'][f'{side}_penumbra_80_20_mm'])} mm, "
+            f"  {side.capitalize()}: measured {format_optional(metrics['film'][f'{side}_penumbra_80_20_mm'])} mm, "
             f"DICOM {format_optional(metrics['dicom'][f'{side}_penumbra_80_20_mm'])} mm, "
             f"difference {format_optional(metrics[f'{side}_penumbra_difference_mm'])} mm"
         )
@@ -574,7 +615,7 @@ def build_metrics_text(film, dicom, metrics):
 
 
 def save_metrics_text_file(film, metrics_text):
-    """Save the terminal metrics text with the same stem as the film CSV."""
+    """Save the terminal metrics text with the same stem as the measured CSV."""
     if SAVE_RESULTS:
         RESULTS_FOLDER.mkdir(parents=True, exist_ok=True)
         text_path = RESULTS_FOLDER / f"{film.path.stem}.txt"
@@ -584,7 +625,7 @@ def save_metrics_text_file(film, metrics_text):
 
 
 def plot_profiles(film, dicom, metrics):
-    """Plot the film and DICOM profiles together."""
+    """Plot the measured and DICOM profiles together."""
     fig, axes = plt.subplots(2, 1, figsize=(9, 7), sharex=True)
 
     plot_min_x = metrics["comparison_min_x_mm"]
@@ -601,7 +642,7 @@ def plot_profiles(film, dicom, metrics):
     axes[0].plot(
         film.x_mm[film_plot_mask],
         film.relative_percent[film_plot_mask],
-        label="Film profile",
+        label="Measured profile",
         linewidth=2,
     )
     axes[0].plot(
@@ -628,10 +669,10 @@ def plot_profiles(film, dicom, metrics):
     )
     axes[1].axhline(0.0, color="black", linewidth=1, alpha=0.5)
     axes[1].set_xlabel("Profile position [mm]")
-    axes[1].set_ylabel("Film - DICOM [% pts]")
+    axes[1].set_ylabel("Measured - DICOM [% pts]")
     axes[1].grid(True, alpha=0.3)
 
-    fig.suptitle(f"6 MeV, 10x10, 105 SSD, Lead Collimator, 3mm depth")
+    fig.suptitle(f"6 MeV, 10x10, 105 SSD, Lead Collimator, 7.5mm depth")
     fig.tight_layout()
 
     if SAVE_RESULTS:
@@ -651,13 +692,13 @@ def plot_profiles(film, dicom, metrics):
 def parse_args():
     """Read optional command-line paths."""
     parser = argparse.ArgumentParser(
-        description="Compare one film profile CSV against one DICOM profile CSV."
+        description="Compare one measured profile CSV against one DICOM profile CSV."
     )
     parser.add_argument(
         "film_csv",
         nargs="?",
         type=Path,
-        help="Optional film profile CSV path. If omitted, FILM_PROFILE_CSV_PATH is used.",
+        help="Optional measured profile CSV path. If omitted, FILM_PROFILE_CSV_PATH is used.",
     )
     parser.add_argument(
         "dicom_csv",

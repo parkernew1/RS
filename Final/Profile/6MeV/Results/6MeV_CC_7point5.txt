@@ -1,0 +1,34 @@
+Measured CSV: /Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/mcc-CSV/6MeV_CC_7point5.csv
+DICOM CSV:    /Users/parkernew/Code/work/RS Project/Final/Profile/6MeV/dcm-CSV/6MeV_CC_7point5.csv
+
+Profile agreement metrics
+-------------------------
+Measured x flipped:      True
+DICOM x flipped:         True
+Aligned by field center: True
+Measured normalization:  dose at x = 0 mm is 100%
+DICOM normalization:     dose at x = 0 mm is 100%
+Field center before alignment: measured 8.836 mm, DICOM 7.733 mm, difference 1.104 mm
+
+Maximums
+  Measured max relative: 100.473% at -28.836 mm
+  DICOM max relative: 103.916% at -38.133 mm
+  Measured max dose:  1.63730 Gy
+  DICOM max dose:     1.70256 Gy
+
+Point-by-point relative dose comparison
+  Compared x range: -60.000 to 92.267 mm
+  Comparison points: 31
+  Mean difference:   -1.042 percentage points
+  Mean abs diff:     1.110 percentage points
+  Max abs diff:      5.699 percentage points
+  RMS difference:    1.647 percentage points
+
+Field widths
+  80% width: measured 84.548 mm, DICOM 86.453 mm, difference -1.905 mm
+  50% width: measured 94.859 mm, DICOM 95.452 mm, difference -0.594 mm
+  20% width: measured 106.355 mm, DICOM 105.154 mm, difference 1.202 mm
+
+Penumbra 80%-20%
+  Left: measured 6.553 mm, DICOM 3.755 mm, difference 2.798 mm
+  Right: measured 15.254 mm, DICOM 14.945 mm, difference 0.309 mm
